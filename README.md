@@ -110,10 +110,10 @@ fn add(a int, b int) int {
 
 ### Slices
 ```ce
-import slice
+import slices
 
 fn main() !void {
-  let mut x = slice.new<int>(0)
+  let mut x = slices.new<int>(0)
   
   x.append(1)
   x.append(3)
