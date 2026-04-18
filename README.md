@@ -15,17 +15,11 @@ A modern compiled systems programming language.
 ### From Source
 
 ```bash
-git clone https://github.com/hadihammurabi/ce-lang.git
-cd ce-lang
+git clone https://github.com/ce-programming-language/ce.git celang
+cd celang
 make dev-setup
 make build
-make install
-```
-
-### From OPAM
-
-```bash
-opam install ce
+sudo make install
 ```
 
 ## Quick Start
@@ -59,8 +53,11 @@ COMMANDS
      build [OPTION]… file
          Compile inserted ce-lang code file to binary executable
 
-     debug [--bytecode] [OPTION]… file
+     debug [OPTION]… file
          Read ce-lang code file then show debug output
+
+     lsp [OPTION]…
+         Compile inserted ce-lang code file then execute that
 
      run [OPTION]… file
          Compile inserted ce-lang code file then execute that
@@ -89,6 +86,7 @@ EXIT STATUS
          on unexpected internal errors (bugs).
 
 Ce 0.1.0                                                                   CE(1)
+
 ```
 
 ## Examples
@@ -97,7 +95,7 @@ Ce 0.1.0                                                                   CE(1)
 
 ```ce
 fn main() void {
-  let x int = 5
+  let x = 5
   println(x)
 }
 ```
@@ -115,11 +113,11 @@ fn add(a int, b int) int {
 import slice
 
 fn main() !void {
-  let mut x slice.Slice[int] = slice.Slice[int]{ptr = malloc[int](3); len = 0; cap = 3}
+  let mut x = slice.new<int>(0)
   
-  x = x.append(1)
-  x = x.append(3)
-  x = x.append(8)
+  x.append(1)
+  x.append(3)
+  x.append(8)
 
   println(x.get(0) catch (e) int { return 0 })
   println(x.get(1) catch (e) int { return 0 })
@@ -128,33 +126,25 @@ fn main() !void {
   println(x.get(4) catch (e) !int { raise e })
 }
 
-output:
-1
-3
-8
-0
-Uncaught Error: unbound index
-```
-
-## Development
-
-```bash
-make build       # Build project
-make install     # Install
-make clean       # Clean build
+// output:
+// 1
+// 3
+// 8
+// 0
+// Uncaught Error: unbound index
 ```
 
 ## Architecture
 
 - **Lexer** (`lib/lexer/`) - Tokenization with Sedlex
 - **Parser** (`lib/parser/`) - AST generation with Menhir
-- **VM** (`lib/vm/`) - Bytecode compiler
+- **LLVM** (`lib/compiler`) - Bytecode compiler
 - **CLI** (`bin/`) - Command-line interface
 
 ## Performance
 
 - **Compilation**: Sub-100ms for typical files
-- **Execution**: Near-native speed with GCC optimization
+- **Execution**: Near-native speed with LLVM optimization and Boehm GC
 - **Memory**: < 1MB minimal runtime
 
 ## License
