@@ -1,0 +1,86 @@
+type size_t uint
+type socklen_t uint
+
+struct SockAddrIn {
+  mut sin_family i16;
+  mut sin_port u16;
+  mut sin_addr u32;
+  mut sin_zero [8]i8;
+}
+
+extern "socket" fn c_socket(domain int, type_ int, protocol int) int
+extern "bind" fn c_bind(sockfd int, addr *SockAddrIn, addrlen socklen_t) int
+extern "listen" fn c_listen(sockfd int, backlog int) int
+extern "accept" fn c_accept(sockfd int, addr *SockAddrIn, addrlen *socklen_t) int
+extern "close" fn c_close(fd int) int
+extern "send" fn c_send(sockfd int, buf string, len size_t, flags int) int
+extern "recv" fn c_recv(sockfd int, buf *char, len size_t, flags int) int
+extern "htons" fn c_htons(hostshort u16) u16
+extern "inet_addr" fn c_inet_addr(cp string) u32
+
+struct Listener {
+  network string;
+  address string;
+  mut addr SockAddrIn;
+
+  mut server_fd int;
+  mut server_addr_len socklen_t;
+  mut client_addr_len socklen_t;
+}
+
+impl Listener {
+  fn accept(&self) !int {
+    let client_fd = c_accept(self.server_fd, &self.addr, &self.client_addr_len)
+    if client_fd < 0 {
+      raise ("Error: Failed to accept client")
+    }
+    println("Client connected!")
+
+    let msg = "Hello from CE Lang FFI!\n"
+    let msg_len size_t = 24
+    let bytes_sent = c_send(client_fd, msg, msg_len, 0)
+    println("Sent message to client.")
+
+    return client_fd
+  }
+
+  fn close(&self) !void {
+    c_close(self.server_fd)
+  }
+}
+
+fn listen(network string, address string) !*Listener {
+  let l = Listener{network=network; address=address}
+
+  let AF_INET int = 2
+  let SOCK_STREAM int = 1
+  let INADDR_ANY u32 = 0
+  
+  l.server_fd = c_socket(AF_INET, SOCK_STREAM, 0)
+  if l.server_fd < 0 {
+    raise ("Error: Failed to create socket")
+  }
+  println("Socket created successfully.")
+
+  l.addr = SockAddrIn {
+    sin_family = AF_INET;
+    sin_port = c_htons(8080);
+    sin_addr = INADDR_ANY;
+    sin_zero = [8]i8{0, 0, 0, 0, 0, 0, 0, 0}
+  }
+  l.server_addr_len = 16
+
+  let bind_res = c_bind(l.server_fd, &l.addr, l.server_addr_len)
+  if bind_res < 0 {
+    raise ("Error: Failed to bind to port 8080")
+  }
+  println("Bound to port 8080.")
+
+  let listen_res = c_listen(l.server_fd, 3)
+  if listen_res < 0 {
+    raise ("Error: Failed to listen")
+  }
+  println("Waiting for incoming connections...")
+  return &l
+}
+

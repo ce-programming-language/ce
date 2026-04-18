@@ -178,11 +178,32 @@ and codegen_expr = function
   | AnonFN (params, ret_ty, body) ->
       Codegen.Expr.gen_anon_fn llvm_type_of codegen_block params ret_ty body
   | Ref (Let name) -> (
-      try
-        let ptr_val, _, _ = Hashtbl.find named_values name in
-        ptr_val
-      with Not_found ->
-        raise (Error ("Cannot reference unknown variable: '" ^ name ^ "'")))
+      if String.contains name '.' then
+        let parts = String.split_on_char '.' name in
+        let base_name = List.hd parts in
+        let v, ast_ty, _ =
+          try Hashtbl.find named_values base_name
+          with Not_found ->
+            raise
+              (Error ("Cannot reference unknown variable: '" ^ base_name ^ "'"))
+        in
+        let is_ptr, base_struct_ast_ty =
+          match ast_ty with TPointer t -> (true, t) | t -> (false, t)
+        in
+        let base_ptr =
+          if is_ptr then
+            build_load (llvm_type_of ast_ty) v "auto_deref_ptr" ce_builder
+          else v
+        in
+        resolve_property_ptr base_ptr
+          (llvm_type_of base_struct_ast_ty)
+          (List.tl parts)
+      else
+        try
+          let ptr_val, _, _ = Hashtbl.find named_values name in
+          ptr_val
+        with Not_found ->
+          raise (Error ("Cannot reference unknown variable: '" ^ name ^ "'")))
   | Ref _ -> raise (Error "Can only reference variables (e.g., &a)")
   | Deref e ->
       let ptr_val = codegen_expr e in
@@ -286,6 +307,7 @@ and codegen_expr = function
           raise (Error ("Cannot find struct '" ^ name ^ "' for instantiation"))
       in
       let alloc = build_alloca llty "structtmp" ce_builder in
+      ignore (build_store (const_null llty) alloc ce_builder);
 
       List.iter
         (fun (fname, fexpr) ->

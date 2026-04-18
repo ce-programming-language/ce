@@ -438,7 +438,19 @@ module Expr = struct
                                 let v, ast_ty, _ =
                                   Hashtbl.find named_values base_name
                                 in
-                                resolve_property_ptr v (llvm_type_of ast_ty)
+                                let is_ptr, base_struct_ast_ty =
+                                  match ast_ty with
+                                  | TPointer t -> (true, t)
+                                  | t -> (false, t)
+                                in
+                                let base_ptr =
+                                  if is_ptr then
+                                    build_load (llvm_type_of ast_ty) v
+                                      "auto_deref_ptr" ce_builder
+                                  else v
+                                in
+                                resolve_property_ptr base_ptr
+                                  (llvm_type_of base_struct_ast_ty)
                                   (List.tl parts)
                               else
                                 let v, _, _ = Hashtbl.find named_values path in

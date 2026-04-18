@@ -326,6 +326,10 @@ let get name =
                     ignore
                       (build_call printf_ty printf_func [| fmt; fn_str |] "p"
                          builder)
+                | TPointer _ ->
+                    let fmt = build_global_stringptr "%p" "fmt" builder in
+                    ignore
+                      (build_call printf_ty printf_func [| fmt; v |] "p" builder)
                 | _ ->
                     let is_null = build_is_null v "is_null" builder in
                     let nil_str =
