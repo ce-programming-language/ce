@@ -4,6 +4,12 @@ open Llvm
 open Utils
 open Infer
 
+let lookup_function name m =
+  let real_name =
+    try Hashtbl.find extern_aliases name with Not_found -> name
+  in
+  Llvm.lookup_function real_name m
+
 module Expr = struct
   let gen_array_access llvm_type_of codegen_expr name index_expr =
     let array_ptr_val, array_ty =

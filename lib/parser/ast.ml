@@ -96,3 +96,4 @@ and stmt =
   | Import of string list
   | Raise of expr
   | DefInterface of string * fn_signature list
+  | ExternFN of string option * string * param list * types

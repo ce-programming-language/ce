@@ -142,4 +142,12 @@ and substitute_stmt type_map = function
           sigs
       in
       DefInterface (name, s_sigs)
+  | ExternFN (alias_opt, name, params, ret_ty) ->
+      let s_params =
+        List.map
+          (fun p ->
+            { param_name = p.param_name; ty = substitute_type type_map p.ty })
+          params
+      in
+      ExternFN (alias_opt, name, s_params, substitute_type type_map ret_ty)
   | s -> s

@@ -204,6 +204,17 @@ and namespace_stmt prefix decls = function
         if List.mem name decls then prefix ^ "." ^ name else name
       in
       DefInterface (new_name, sigs)
+  | ExternFN (alias, name, params, ret_ty) ->
+      let new_name =
+        if List.mem name decls then prefix ^ "." ^ name else name
+      in
+      let ns_params =
+        List.map
+          (fun p ->
+            { param_name = p.param_name; ty = namespace_type prefix decls p.ty })
+          params
+      in
+      ExternFN (alias, new_name, ns_params, namespace_type prefix decls ret_ty)
   | Impl (name, params, methods) ->
       let new_name =
         if List.mem name decls then prefix ^ "." ^ name else name
@@ -247,6 +258,7 @@ let rec process_file_inner visited filepath namespace_prefix =
           | DefFN (name, _, _, _, _) -> name :: acc
           | DefStruct (name, _, _) -> name :: acc
           | DefInterface (name, _) -> name :: acc
+          | ExternFN (_, name, _, _) -> name :: acc
           | _ -> acc)
         [] ast
     in

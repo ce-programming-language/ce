@@ -785,6 +785,22 @@ and codegen_stmt = function
   | DefInterface (name, sigs) ->
       Hashtbl.add interface_registry name sigs;
       const_null (void_type ce_ctx)
+  | ExternFN (alias_opt, name, params, ret_ty) ->
+      let c_name = match alias_opt with Some a -> a | None -> name in
+      if c_name <> name then Hashtbl.add extern_aliases name c_name;
+
+      let param_types =
+        Array.of_list (List.map (fun (p : param) -> llvm_type_of p.ty) params)
+      in
+      let ft = function_type (llvm_type_of ret_ty) param_types in
+      Hashtbl.add function_types name (ft, ret_ty);
+
+      let _ =
+        match Llvm.lookup_function c_name ce_module with
+        | Some f -> f
+        | None -> declare_function c_name ft ce_module
+      in
+      const_null (void_type ce_ctx)
 
 let optimize the_module =
   ignore (Llvm_all_backends.initialize ());
