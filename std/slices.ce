@@ -15,6 +15,15 @@ impl Slice<T any> {
     return *search
   }
 
+  fn set(&self, index int, v T) void {
+    assert(index >= 0, "index out of bounds")
+    assert(self.len > index, "index out of bounds")
+
+    let item_size = mem.sizeOf(v)
+    let target *T = self.ptr + (index * item_size)
+    *target = v
+  }
+
   fn append(&self, item T) Slice<T> {
     let so int = mem.sizeOf(item)
 
@@ -29,6 +38,59 @@ impl Slice<T any> {
     *target = item
     
     self.len = self.len + 1
+    return self
+  }
+
+  fn clone(self) Slice<T> {
+    let mut new_slice = slices.new<T>(self.cap)
+    new_slice.len = self.len
+
+    for i = 0; i < self.len; i = i + 1 {
+      new_slice.set(i, self.get(i))
+    }
+
+    return new_slice
+  }
+
+  fn concat(self, y Slice<T>) Slice<T> {
+    let mut new_slice = slices.new<T>(self.len + y.len)
+    for i = 0; i < self.len; i = i + 1 {
+      new_slice.set(i, self.get(i))
+    }
+    for i = 0; i < y.len; i = i + 1 {
+      new_slice.set(i + self.len, y.get(i))
+    }
+    return new_slice
+  }
+
+  fn contains(self, v T) bool {
+    for i = 0; i < self.len; i = i + 1 {
+      let current_ptr = self.get(i)
+      if current_ptr == v {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  fn delete(&self, start int, end int) Slice<T> {
+    if start < 0 || end > self.len || start >= end {
+      return self
+    }
+
+    let x T
+    let item_size = mem.sizeOf(x)
+    let num_to_delete = end - start
+    let num_to_move int = self.len - end
+
+    for i = 0; i < num_to_move; i = i + 1 {
+      let target_ptr *T = self.ptr + ((start + i) * item_size)
+      let source_ptr *T = self.ptr + ((end + i) * item_size)
+      *target_ptr = *source_ptr
+    }
+    self.len = self.len - num_to_delete
+
     return self
   }
 }
