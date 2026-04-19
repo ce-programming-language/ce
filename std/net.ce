@@ -19,8 +19,8 @@ extern "htons" fn c_htons(hostshort u16) u16
 extern "inet_addr" fn c_inet_addr(cp string) u32
 
 struct Listener {
-  network string;
-  address string;
+  mut network string;
+  mut address string;
   mut addr SockAddrIn;
 
   mut server_fd int;
@@ -28,20 +28,20 @@ struct Listener {
   mut client_addr_len socklen_t;
 }
 
+struct Connection {
+  mut client_fd int;
+}
+
 impl Listener {
-  fn accept(&self) !int {
+  fn accept(&self) !*Connection {
+    let conn = malloc<Connection>(1)
     let client_fd = c_accept(self.server_fd, &self.addr, &self.client_addr_len)
     if client_fd < 0 {
       raise ("Error: Failed to accept client")
     }
-    println("Client connected!")
 
-    let msg = "Hello from CE Lang FFI!\n"
-    let msg_len size_t = 24
-    let bytes_sent = c_send(client_fd, msg, msg_len, 0)
-    println("Sent message to client.")
-
-    return client_fd
+    conn.client_fd = client_fd
+    return conn
   }
 
   fn close(&self) !void {
@@ -49,8 +49,25 @@ impl Listener {
   }
 }
 
+impl Connection {
+  fn send(&self, msg string) !void {
+    let msg_len size_t = msg.len()
+    let bytes_sent = c_send(self.client_fd, msg, msg_len, 0)
+    if bytes_sent < 0 {
+      raise ("Error: Failed to send message")
+    }
+  }
+
+  fn close(&self) !void {
+    c_close(self.client_fd)
+  }
+}
+
+
 fn listen(network string, address string) !*Listener {
-  let l = Listener{network=network; address=address}
+  let l = malloc<Listener>(1)
+  l.network = network
+  l.address = address
 
   let AF_INET int = 2
   let SOCK_STREAM int = 1
@@ -60,7 +77,6 @@ fn listen(network string, address string) !*Listener {
   if l.server_fd < 0 {
     raise ("Error: Failed to create socket")
   }
-  println("Socket created successfully.")
 
   l.addr = SockAddrIn {
     sin_family = AF_INET;
@@ -74,13 +90,12 @@ fn listen(network string, address string) !*Listener {
   if bind_res < 0 {
     raise ("Error: Failed to bind to port 8080")
   }
-  println("Bound to port 8080.")
 
   let listen_res = c_listen(l.server_fd, 3)
   if listen_res < 0 {
     raise ("Error: Failed to listen")
   }
-  println("Waiting for incoming connections...")
-  return &l
+
+  return l
 }
 
