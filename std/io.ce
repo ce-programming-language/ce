@@ -1,0 +1,9 @@
+import slices
+
+trait reader { 
+  fn read(buf slices.Slice<char>) !int
+}
+
+trait writer {
+  fn write(p slices.Slice<char>) !int
+} 
