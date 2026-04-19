@@ -1,3 +1,5 @@
+import slices
+
 type size_t uint
 type socklen_t uint
 
@@ -61,8 +63,28 @@ impl Connection {
   fn close(&self) !void {
     c_close(self.client_fd)
   }
-}
 
+  fn write(&self, p slices.Slice<char>) !int {
+    let p_len size_t = p.len
+    let msg string = p.ptr 
+    let bytes_written = c_send(self.client_fd, msg, p_len, 0)
+
+    if bytes_written < 0 {
+      raise ("Error: Failed to write to socket")
+    }
+    return bytes_written
+  }
+
+  fn read(&self, buf slices.Slice<char>) !int {
+    let buf_len size_t = buf.len 
+    let bytes_read = c_recv(self.client_fd, buf.ptr, buf_len, 0)
+    
+    if bytes_read < 0 {
+      raise ("Error: Failed to read from socket")
+    }
+    return bytes_read
+  }
+}
 
 fn listen(network string, address string) !*Listener {
   let l = malloc<Listener>(1)

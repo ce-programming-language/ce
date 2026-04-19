@@ -1,3 +1,5 @@
+import slices
+
 impl string {
   fn at(self, index uint) char {
     let ptr *char = self 
@@ -135,4 +137,13 @@ impl string {
 
     return new_ptr
   }
+
+  fn chars(self) slices.Slice<char> {
+      let c = slices.new<char>(0)
+      for i = 0; i < self.len(); i = i + 1 {
+          c.append(self.at(i))
+        }
+
+        return c
+    }
 }
