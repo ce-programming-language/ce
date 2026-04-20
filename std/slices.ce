@@ -11,7 +11,7 @@ impl Slice<T any> {
     assert(self.len > index, "unbound index")
 
     let start *T = self.ptr
-    let search *T = self.ptr + (index * mem.sizeOf(*start))
+    let search *T = self.ptr + (index * sizeof(*start))
     return *search
   }
 
@@ -19,13 +19,13 @@ impl Slice<T any> {
     assert(index >= 0, "index out of bounds")
     assert(self.len > index, "index out of bounds")
 
-    let item_size = mem.sizeOf(v)
+    let item_size int = sizeof(v)
     let target *T = self.ptr + (index * item_size)
     *target = v
   }
 
   fn append(&self, item T) Slice<T> {
-    let so int = mem.sizeOf(item)
+    let so int = sizeof(item)
 
     if self.len >= self.cap {
       let new_cap int = if self.cap == 0 { 4 } else { self.cap * 2 }
@@ -80,7 +80,7 @@ impl Slice<T any> {
     }
 
     let x T
-    let item_size = mem.sizeOf(x)
+    let item_size int = sizeof(x)
     let num_to_delete = end - start
     let num_to_move int = self.len - end
 

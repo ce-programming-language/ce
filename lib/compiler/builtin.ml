@@ -792,4 +792,30 @@ let get name =
             llvm_type_of
             infer_ast_type
           -> const_null (void_type context))
+    | "sizeof" ->
+        Some
+          (fun context
+            the_module
+            builder
+            fn_name
+            arg_vals
+            targ_lltypes
+            arg_asts
+            targs
+            codegen_expr
+            llvm_type_of
+            infer_ast_type
+          ->
+            let target_ll_ty =
+              if List.length targ_lltypes = 1 then List.hd targ_lltypes
+              else if List.length arg_asts = 1 then
+                llvm_type_of (List.hd arg_asts)
+              else
+                raise
+                  (Error
+                     "sizeof expects exactly 1 type argument or 1 value \
+                      argument")
+            in
+            let size_val = size_of target_ll_ty in
+            build_intcast size_val (i32_type context) "sizeof_cast" builder)
     | _ -> None
