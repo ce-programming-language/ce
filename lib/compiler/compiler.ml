@@ -751,7 +751,9 @@ and codegen_stmt = function
         const_null (void_type ce_ctx)
       end
       else begin
-        ignore (build_ret v ce_builder);
+        if type_of v = void_type ce_ctx then ignore (build_ret_void ce_builder)
+        else ignore (build_ret v ce_builder);
+
         const_null (void_type ce_ctx)
       end
   | Import _ -> const_null (void_type ce_ctx)

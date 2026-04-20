@@ -107,6 +107,7 @@ stmt:
   | name = path LBRACKET idx = expr RBRACKET EQUALS e = expr { ArrayAssign (name, idx, e) }
   | STAR ptr = expr_simple EQUALS e = expr { DerefAssign (ptr, e) }
   | RETURN expr     { Return $2 }
+  | RETURN          { Return Void }
   | BREAK           { Break }
   | block           { Block $1 }
   | expr            { Expr $1 }
@@ -161,7 +162,7 @@ types:
   | t = type_scalar                       { t }
   | LBRACKET n = INT RBRACKET ty = types  { TArray (n, ty) }
   | STAR ty = types                       { TPointer ty }
-  | name = path LT arg_ty = types GT { TGenericInst (name, [arg_ty]) }
+  | name = path LT arg_tys = separated_nonempty_list(COMMA, types) GT { TGenericInst (name, arg_tys) }
   | BANG ty = types                       { TResult ty }
   | LPAREN t = types COMMA rest = separated_nonempty_list(COMMA, types) RPAREN { TTuple (t :: rest) }
   | FN LPAREN RPAREN ret_ty = types { TFn([], ret_ty) }
@@ -223,9 +224,12 @@ path_tail:
   | id = IDENT DOT p = path_tail { id ^ "." ^ p }
   | i = INT DOT p = path_tail { string_of_int i ^ "." ^ p }
 
+generic_param:
+  | name = IDENT ty = types { (name, ty) }
+
 generic_params_opt:
   | { [] }
-  | LT name = IDENT ty = types GT { [(name, ty)] }
+  | LT params = separated_nonempty_list(COMMA, generic_param) GT { params }
 
 impl_method_list:
   |  { [] }

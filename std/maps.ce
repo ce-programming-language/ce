@@ -1,0 +1,50 @@
+import slices
+
+struct Entry<T any, U any> {
+  mut key T;
+  mut value U;
+}
+
+struct Map<T any, U any>{
+  mut entries slices.Slice<Entry<T, U>>;
+}
+
+fn new<T any, U any>() *Map<T, U> {
+  let m = malloc<Map<T, U>>(1)
+  m.entries = slices.new<Entry<T, U>>(0)
+  return m
+}
+
+impl Map<T any, U any> {
+  fn put(&self, key T, value U) void {
+    let len int = self.entries.len
+    
+    for i = 0; i < len; i = i + 1 {
+      let mut entry Entry<T, U> = self.entries.get(i)      
+      if entry.key == key {
+        entry.value = value
+        self.entries.set(i, entry)
+        return
+      }
+    }
+    
+    let new_entry = Entry<T, U>{
+      key = key;
+      value = value
+    }
+    self.entries.append(new_entry)
+  }
+
+  fn get(&self, key T) !U {
+    let len int = self.entries.len
+    
+    for i = 0; i < len; i = i + 1 {
+      let entry Entry<T, U> = self.entries.get(i)      
+      if entry.key == key {
+        return entry.value
+      }
+    }
+    
+    raise "Error: Key not found"
+  }
+}
