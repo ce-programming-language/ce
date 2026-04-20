@@ -86,6 +86,14 @@ let get_print_any context the_module builder =
       print_fmt "%s" [ print_str_val ];
       ignore (build_br bb_end builder);
 
+      position_at_end bb_char builder;
+      let char_val = build_load (i8_type context) data_ptr "char_val" builder in
+      let char_val_i32 =
+        build_intcast char_val (i32_type context) "char_i32" builder
+      in
+      print_fmt "%c" [ char_val_i32 ];
+      ignore (build_br bb_end builder);
+
       position_at_end bb_end builder;
       ignore (build_ret_void builder);
 
