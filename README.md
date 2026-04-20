@@ -134,6 +134,35 @@ fn main() !void {
 // Uncaught Error: unbound index
 ```
 
+### Net TCP Listen
+```ce
+import net
+import slices
+
+fn main() !void {
+  let host = "127.0.0.1:8080"
+  let ln = net.listen("tcp", host)
+  println("started at", host)
+
+  for {
+    let conn = ln.accept()
+
+    for {
+      let mut body = slices.new<char>(1024)
+      let cread = conn.read(body)
+      conn.write(body)
+    }
+
+    conn.close()
+  }
+
+  ln.close()
+}
+
+// test send data using:
+// telnet 127.0.0.1 8080
+```
+
 ## Architecture
 
 - **Lexer** (`lib/lexer/`) - Tokenization with Sedlex
