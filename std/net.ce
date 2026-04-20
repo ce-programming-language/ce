@@ -1,4 +1,5 @@
 import slices
+import net.url
 
 type size_t uint
 type socklen_t uint
@@ -87,6 +88,7 @@ impl Connection {
 }
 
 fn listen(network string, address string) !*Listener {
+  let u = url.parse(address)
   let l = malloc<Listener>(1)
   l.network = network
   l.address = address
@@ -100,17 +102,19 @@ fn listen(network string, address string) !*Listener {
     raise ("Error: Failed to create socket")
   }
 
+  let port_s string = u.port
+  let port = port_s.as<u16>()
   l.addr = SockAddrIn {
     sin_family = AF_INET;
-    sin_port = c_htons(8080);
-    sin_addr = INADDR_ANY;
+    sin_port = c_htons(port);
+    sin_addr = c_inet_addr(u.host);
     sin_zero = [8]i8{0, 0, 0, 0, 0, 0, 0, 0}
   }
   l.server_addr_len = 16
 
   let bind_res = c_bind(l.server_fd, &l.addr, l.server_addr_len)
   if bind_res < 0 {
-    raise ("Error: Failed to bind to port 8080")
+    raise ("Error: Failed to bind to that port")
   }
 
   let listen_res = c_listen(l.server_fd, 3)

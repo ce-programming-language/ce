@@ -123,6 +123,7 @@ let get name =
           self_ast_ty = TString
           && (target_ast_ty = TInt || target_ast_ty = TI32
             || target_ast_ty = TI64 || target_ast_ty = TUInt
+            || target_ast_ty = TU8 || target_ast_ty = TU16
             || target_ast_ty = TU32 || target_ast_ty = TU64
             || target_ast_ty = TI8 || target_ast_ty = TU8
             || target_ast_ty = TI16 || target_ast_ty = TU16
