@@ -1,0 +1,74 @@
+import strings
+
+struct URL {
+  mut scheme string;
+  mut host string;
+  mut port string;
+}
+
+fn parse(raw string) !*URL {
+  let len uint = raw.len()
+  let url = malloc<URL>(1)
+  let mut scheme_end uint = 0
+  let mut has_scheme bool = false
+  
+  for i = 0; i < len; i = i + 1 {
+    if i + 2 < len {
+      if raw.at(i) == ':' && raw.at(i+1) == '/' && raw.at(i+2) == '/' {
+        scheme_end = i
+        has_scheme = true
+        break
+      }
+    }
+  }
+  
+  let mut host_start uint = 0
+  
+  if has_scheme {
+    url.scheme = raw.substring(0, scheme_end)
+    host_start = scheme_end + 3
+  } else {
+    url.scheme = ""
+    host_start = 0
+  }
+  
+  let mut host_end uint = len
+  let mut port_start uint = 0
+  let mut has_port bool = false
+  
+  for i = host_start; i < len; i = i + 1 {
+    let c char = raw.at(i)
+    if c == ':' {
+      host_end = i
+      port_start = i + 1
+      has_port = true
+      break
+    }
+    if c == '/' {
+      host_end = i
+      break
+    }
+  }
+  
+  let host = raw.substring(host_start, host_end)
+  
+  if host.len() == 0 {
+    raise "Error: host is required but was empty"
+  }
+ 
+ url.host = host
+  if has_port {
+    let mut port_end uint = len
+    for i = port_start; i < len; i = i + 1 {
+      if raw.at(i) == '/' {
+        port_end = i
+        break
+      }
+    }
+    url.port = raw.substring( port_start, port_end)
+  } else {
+    url.port = ""
+  }
+  
+  return url 
+}

@@ -146,4 +146,24 @@ impl string {
 
         return c
     }
+
+  fn substring(self, start uint, end uint) string {
+    if start >= end {
+      return ""
+    }
+
+    let len uint = end - start
+    let new_ptr *char = malloc<char>(len + 1)
+
+    for i = 0; i < len; i = i + 1 {
+      let target *char = new_ptr + i
+      *target = self.at(start + i)
+    }
+
+    let null_char char = 0
+    let end_target *char = new_ptr + len
+    *end_target = null_char
+
+    return new_ptr
+  }
 }

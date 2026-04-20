@@ -275,7 +275,7 @@ let rec process_file_inner visited filepath namespace_prefix =
           match stmt with
           | Import path_list ->
               let import_path = resolve_import path_list in
-              let module_name = String.concat "." path_list in
+              let module_name = List.hd (List.rev path_list) in
               acc @ process_file_inner visited import_path (Some module_name)
           | _ -> acc)
         [] namespaced_ast
