@@ -1,4 +1,30 @@
-import mem
+struct SliceIter<T any> {
+  mut slice Slice<T>;
+  mut current int;
+}
+
+impl SliceIter<T any> {
+  fn next(&self) bool {
+    self.current = self.current + 1
+    return self.current < self.slice.len
+  }
+
+
+  fn index(&self) int {
+    return self.current
+  }
+
+  fn value(&self) T {
+    let x T
+    let item_size int = sizeof(x)
+    let target *T = self.slice.ptr + (self.current * item_size)
+    return *target
+  }
+
+  fn entry(self) (int, T) {
+    return (self.index(), self.value())
+  }
+}
 
 struct Slice<T any> {
   mut ptr *T;
@@ -93,9 +119,17 @@ impl Slice<T any> {
 
     return self
   }
+
+  fn iter(self) SliceIter<T> {
+    return SliceIter<T>{
+      slice = self;
+      current = -1
+    }
+  }
 }
 
 fn new<T any>(cap int) Slice<T> {
   let s Slice<T> = Slice<T>{ptr = malloc<T>(cap); len = cap; cap = cap}
   return s
 }
+
