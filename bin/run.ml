@@ -2,11 +2,12 @@ open Ce_compiler
 open Cmdliner
 
 let execute file =
-  let binary_name = Build.remove_extension file in
   let visited = Hashtbl.create 10 in
-  let ast = Build.process_file visited file in
+  let binary_name = Build.remove_extension file in
   let _ =
-    try ast |> Compiler.compile |> Generator.export binary_name
+    try
+      file |> Build.process_file visited |> Compiler.compile
+      |> Build.export binary_name
     with Failure msg ->
       Printf.printf "Error: %s\n" msg;
       exit 1

@@ -1,12 +1,15 @@
 open Ce_compiler
 open Cmdliner
+open Llvm
+
+let dump m =
+  let module_string = string_of_llmodule m in
+  print_endline module_string
 
 let execute file =
   let visited = Hashtbl.create 10 in
   let ast = Build.process_file visited file in
-  try
-    let prog = ast |> Compiler.compile in
-    Generator.dump prog
+  try ast |> Compiler.compile |> dump
   with Failure msg ->
     Printf.printf "Error: %s\n" msg;
     exit 1

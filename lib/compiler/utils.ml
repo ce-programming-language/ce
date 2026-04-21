@@ -75,3 +75,9 @@ and build_ptr_arith lv rv op name =
   build_inttoptr
     (op ptr_int rv_i64 name ce_builder)
     (type_of lv) "itp" ce_builder
+
+and lookup_function env name m =
+  let real_name =
+    try Hashtbl.find env.extern_aliases name with Not_found -> name
+  in
+  Llvm.lookup_function real_name m

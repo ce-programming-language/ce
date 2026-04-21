@@ -3,6 +3,7 @@ open Ce_parser
 open Ce_lexer
 open Ce_parser.Ast
 open Cmdliner
+open Llvm_target
 
 let read file = In_channel.with_open_text file In_channel.input_all
 
@@ -306,13 +307,33 @@ let process_file visited filepath =
   let main_ast = process_file_inner visited filepath None in
   prelude_ast @ main_ast
 
+let export binary_name the_module =
+  ignore (Llvm_all_backends.initialize ());
+  let target_triple = Target.default_triple () in
+  let target = Target.by_triple target_triple in
+  let machine =
+    TargetMachine.create ~triple:target_triple ~reloc_mode:RelocMode.PIC target
+  in
+
+  let obj_filename = binary_name ^ ".o" in
+  TargetMachine.emit_to_file the_module CodeGenFileType.ObjectFile obj_filename
+    machine;
+
+  let link_cmd = Printf.sprintf "cc %s -lgc -o %s" obj_filename binary_name in
+  match Sys.command link_cmd with
+  | 0 ->
+      if Sys.file_exists obj_filename then Sys.remove obj_filename;
+      ()
+  | code ->
+      Printf.eprintf "Linking failed with code %d\n" code;
+      exit 1
+
 let execute file =
-  let binary_name = remove_extension file in
   let visited = Hashtbl.create 10 in
-
-  let ast = process_file visited file in
-
-  let _ = ast |> Compiler.compile |> Generator.export binary_name in
+  let binary_name = remove_extension file in
+  let _ =
+    file |> process_file visited |> Compiler.compile |> export binary_name
+  in
   Printf.printf "Compiled and linked: %s\n" binary_name
 
 let command =
