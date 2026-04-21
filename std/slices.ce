@@ -9,7 +9,6 @@ impl SliceIter<T any> {
     return self.current < self.slice.len
   }
 
-
   fn index(&self) int {
     return self.current
   }

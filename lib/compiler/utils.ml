@@ -6,7 +6,7 @@ let build_numeric_op lv rv build_int build_float name =
   if type_of lv = double_type ce_ctx then build_float lv rv name ce_builder
   else build_int lv rv name ce_builder
 
-and resolve_property_ptr current_ptr current_ty props =
+and resolve_property_ptr env current_ptr current_ty props =
   let rec get_gep ptr ty props =
     match props with
     | [] -> ptr
@@ -24,7 +24,7 @@ and resolve_property_ptr current_ptr current_ty props =
                 String.sub s_name 7 (String.length s_name - 7)
               else s_name
             in
-            let _, field_map = Hashtbl.find struct_registry clean_name in
+            let _, field_map = Hashtbl.find env.struct_registry clean_name in
             let _, idx, _, _ =
               List.find (fun (n, _, _, _) -> n = prop) field_map
             in

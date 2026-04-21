@@ -1,5 +1,9 @@
 trait any{}
 
+trait Iterable {
+  fn next() bool;
+}
+
 fn assert(condition bool, message string) !void {
   if condition {
   } else {

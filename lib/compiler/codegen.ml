@@ -4,16 +4,16 @@ open Llvm
 open Utils
 open Infer
 
-let lookup_function name m =
+let lookup_function env name m =
   let real_name =
-    try Hashtbl.find extern_aliases name with Not_found -> name
+    try Hashtbl.find env.extern_aliases name with Not_found -> name
   in
   Llvm.lookup_function real_name m
 
 module Expr = struct
-  let gen_array_access llvm_type_of codegen_expr name index_expr =
+  let gen_array_access env llvm_type_of codegen_expr name index_expr =
     let array_ptr_val, array_ty =
-      match Hashtbl.find_opt named_values name with
+      match Hashtbl.find_opt env.named_values name with
       | Some (v, ty, _) -> (v, ty)
       | None -> raise (Error ("Array '" ^ name ^ "' not found"))
     in
@@ -29,13 +29,13 @@ module Expr = struct
     let elem_ty = element_type llvm_array_ty in
     build_load elem_ty element_ptr "loadtmp" ce_builder
 
-  and gen_let llvm_type_of codegen_expr name =
+  and gen_let env llvm_type_of codegen_expr name =
     if String.contains name '.' then
       let parts = String.split_on_char '.' name in
       let base_name = List.hd parts in
       let props = List.tl parts in
 
-      match Hashtbl.find_opt named_values base_name with
+      match Hashtbl.find_opt env.named_values base_name with
       | Some (v, ast_ty, _) ->
           let is_ptr, base_struct_ast_ty =
             match ast_ty with TPointer t -> (true, t) | t -> (false, t)
@@ -66,7 +66,9 @@ module Expr = struct
                             String.sub s_name 7 (String.length s_name - 7)
                           else s_name
                         in
-                        match Hashtbl.find_opt struct_registry clean_name with
+                        match
+                          Hashtbl.find_opt env.struct_registry clean_name
+                        with
                         | Some (_, field_map) -> (
                             try
                               let _, idx, _, _ =
@@ -117,34 +119,34 @@ module Expr = struct
           in
           extract base_struct_val base_struct_llty props
       | None -> (
-          match lookup_function name ce_module with
+          match lookup_function env name ce_module with
           | Some f -> f
           | None -> raise (Error ("Unknown variable or function: " ^ name)))
     else
-      match Hashtbl.find_opt named_values name with
+      match Hashtbl.find_opt env.named_values name with
       | Some (v, ast_ty, _) ->
           build_load (llvm_type_of ast_ty) v name ce_builder
       | None -> (
-          match lookup_function name ce_module with
+          match lookup_function env name ce_module with
           | Some f -> f
           | None -> raise (Error ("Unknown variable or function: " ^ name)))
 
-  and gen_call llvm_type_of codegen_expr coerce_value instantiate_generic_fn
+  and gen_call env llvm_type_of codegen_expr coerce_value instantiate_generic_fn
       name targs args =
     match Builtin.get name with
     | Some builtin_fn ->
         let arg_vals = List.map codegen_expr args in
         let targ_lltypes = List.map llvm_type_of targs in
-        let arg_asts = List.map infer_ast_type args in
+        let arg_asts = List.map (infer_ast_type env) args in
         builtin_fn ce_ctx ce_module ce_builder name arg_vals targ_lltypes
-          arg_asts targs codegen_expr llvm_type_of infer_ast_type
+          arg_asts targs codegen_expr llvm_type_of (infer_ast_type env)
     | None -> (
         let target_name =
           if targs = [] then name else instantiate_generic_fn name targs
         in
-        match lookup_function name ce_module with
+        match lookup_function env name ce_module with
         | Some callee ->
-            let ft, _ = Hashtbl.find function_types name in
+            let ft, _ = Hashtbl.find env.function_types name in
             let expected_tys = param_types ft in
             let arg_vals =
               List.mapi
@@ -158,9 +160,9 @@ module Expr = struct
             in
             build_call ft callee args_val call_name ce_builder
         | None -> (
-            match lookup_function target_name ce_module with
+            match lookup_function env target_name ce_module with
             | Some callee ->
-                let ft, _ = Hashtbl.find function_types target_name in
+                let ft, _ = Hashtbl.find env.function_types target_name in
                 let expected_tys = param_types ft in
                 let arg_vals =
                   List.mapi
@@ -177,7 +179,7 @@ module Expr = struct
             | None ->
                 let is_fn_var =
                   try
-                    match infer_ast_type (Let name) with
+                    match infer_ast_type env (Let name) with
                     | TFn _ -> true
                     | _ -> false
                   with _ -> false
@@ -185,7 +187,7 @@ module Expr = struct
 
                 if is_fn_var then
                   let fn_val = codegen_expr (Let name) in
-                  let fn_ast_ty = infer_ast_type (Let name) in
+                  let fn_ast_ty = infer_ast_type env (Let name) in
                   match fn_ast_ty with
                   | TFn (param_tys, ret_ty) ->
                       let expected_tys =
@@ -213,7 +215,7 @@ module Expr = struct
                       in
                       build_call ft fn_ptr_raw all_args call_name ce_builder
                   | _ -> raise (Error "Unreachable")
-                else if Hashtbl.mem fn_templates name then
+                else if Hashtbl.mem env.fn_templates name then
                   raise
                     (Error
                        ("Function '" ^ name
@@ -227,10 +229,10 @@ module Expr = struct
                       (String.length name - last_dot_idx - 1)
                   in
 
-                  if Hashtbl.mem struct_registry base_path then
+                  if Hashtbl.mem env.struct_registry base_path then
                     let mangled_name = base_path ^ "::" ^ method_name in
                     let callee =
-                      match lookup_function mangled_name ce_module with
+                      match lookup_function env mangled_name ce_module with
                       | Some c -> c
                       | None ->
                           raise
@@ -238,7 +240,7 @@ module Expr = struct
                                ("Unknown method '" ^ method_name
                               ^ "' on struct '" ^ base_path ^ "'"))
                     in
-                    let ft, _ = Hashtbl.find function_types mangled_name in
+                    let ft, _ = Hashtbl.find env.function_types mangled_name in
                     let expected_tys = param_types ft in
                     let arg_vals =
                       List.mapi
@@ -268,7 +270,7 @@ module Expr = struct
                       else (self_ty_llvm, false)
                     in
 
-                    let self_ast_ty = infer_ast_type (Let base_path) in
+                    let self_ast_ty = infer_ast_type env (Let base_path) in
                     let actual_ast_ty =
                       match self_ast_ty with TPointer t -> t | t -> t
                     in
@@ -290,7 +292,7 @@ module Expr = struct
 
                     let mangled_name = clean_name ^ "::" ^ method_name in
                     let callee =
-                      match lookup_function mangled_name ce_module with
+                      match lookup_function env mangled_name ce_module with
                       | Some c -> c
                       | None ->
                           raise
@@ -298,7 +300,7 @@ module Expr = struct
                                ("Unknown method '" ^ method_name ^ "' on type '"
                               ^ clean_name ^ "'"))
                     in
-                    let ft, _ = Hashtbl.find function_types mangled_name in
+                    let ft, _ = Hashtbl.find env.function_types mangled_name in
                     let expected_tys = param_types ft in
 
                     let expected_self_ty = expected_tys.(0) in
@@ -311,7 +313,7 @@ module Expr = struct
                               let parts = String.split_on_char '.' path in
                               let base_name = List.hd parts in
                               let v, ast_ty, _ =
-                                Hashtbl.find named_values base_name
+                                Hashtbl.find env.named_values base_name
                               in
                               let is_ptr, base_struct_ast_ty =
                                 match ast_ty with
@@ -324,11 +326,13 @@ module Expr = struct
                                     "auto_deref_ptr" ce_builder
                                 else v
                               in
-                              resolve_property_ptr base_ptr
+                              resolve_property_ptr env base_ptr
                                 (llvm_type_of base_struct_ast_ty)
                                 (List.tl parts)
                             else
-                              let v, _, _ = Hashtbl.find named_values path in
+                              let v, _, _ =
+                                Hashtbl.find env.named_values path
+                              in
                               v
                           in
                           get_ptr_to_name base_path
@@ -410,8 +414,8 @@ module Expr = struct
       if ty = void_type ce_ctx then const_null (void_type ce_ctx)
       else build_phi incoming "iftmp" ce_builder
 
-  and gen_catch llvm_type_of codegen_expr codegen_stmt expr err_name catch_ty
-      body =
+  and gen_catch env llvm_type_of codegen_expr codegen_stmt expr err_name
+      catch_ty body =
     let res_val = codegen_expr expr in
     let is_err = build_extractvalue res_val 0 "is_err" ce_builder in
 
@@ -427,8 +431,8 @@ module Expr = struct
     let err_alloc = build_alloca (pointer_type ce_ctx) err_name ce_builder in
     ignore (build_store err_str err_alloc ce_builder);
 
-    let old_val_opt = Hashtbl.find_opt named_values err_name in
-    Hashtbl.add named_values err_name (err_alloc, TString, false);
+    let old_val_opt = Hashtbl.find_opt env.named_values err_name in
+    Hashtbl.add env.named_values err_name (err_alloc, TString, false);
 
     let catch_ty_ll = llvm_type_of catch_ty in
     let catch_val = ref (const_null catch_ty_ll) in
@@ -438,9 +442,9 @@ module Expr = struct
         | Return e -> catch_val := codegen_expr e | s -> ignore (codegen_stmt s))
       body;
 
-    Hashtbl.remove named_values err_name;
+    Hashtbl.remove env.named_values err_name;
     (match old_val_opt with
-    | Some v -> Hashtbl.add named_values err_name v
+    | Some v -> Hashtbl.add env.named_values err_name v
     | None -> ());
 
     let err_end_bb = insertion_block ce_builder in
@@ -465,12 +469,12 @@ module Expr = struct
         "catch_res" ce_builder
     else ok_val
 
-  and gen_catch_expr llvm_type_of codegen_expr coerce_value expr handler =
+  and gen_catch_expr env llvm_type_of codegen_expr coerce_value expr handler =
     let res_val = codegen_expr expr in
     let is_err = build_extractvalue res_val 0 "is_err" ce_builder in
 
     let expected_ast_ty =
-      match infer_ast_type expr with TResult t -> t | t -> t
+      match infer_ast_type env expr with TResult t -> t | t -> t
     in
     let expected_ll_ty = llvm_type_of expected_ast_ty in
 
@@ -488,15 +492,15 @@ module Expr = struct
     let catch_val_raw =
       match handler with
       | Let name
-        when Hashtbl.mem function_types name
-             && not (Hashtbl.mem named_values name) ->
-          let ft, _ = Hashtbl.find function_types name in
+        when Hashtbl.mem env.function_types name
+             && not (Hashtbl.mem env.named_values name) ->
+          let ft, _ = Hashtbl.find env.function_types name in
           let call_name =
             if expected_ll_ty = void_type ce_ctx then "" else "catch_call_tmp"
           in
           build_call ft handler_val [| err_str |] call_name ce_builder
       | _ -> (
-          let handler_ast_ty = infer_ast_type handler in
+          let handler_ast_ty = infer_ast_type env handler in
           match handler_ast_ty with
           | TFn (param_tys, ret_ty) ->
               let env_ptr =
@@ -542,21 +546,22 @@ module Expr = struct
         [ (catch_val, err_end_bb); (ok_val, ok_end_bb) ]
         "catch_expr_res" ce_builder
 
-  and gen_anon_fn llvm_type_of codegen_block params ret_ty body =
+  and gen_anon_fn env llvm_type_of codegen_block params ret_ty body =
+    let en = !env in
     let anon_id = Oo.id object end in
     let actual_name = Printf.sprintf "__anon_fn_%d" anon_id in
 
-    let was_res = !current_fn_is_res in
-    let was_ret_ty = !current_fn_ret_ty in
+    let was_res = !(en.current_fn_is_res) in
+    let was_ret_ty = !(en.current_fn_ret_ty) in
     let old_bb = insertion_block ce_builder in
 
-    (current_fn_is_res := match ret_ty with TResult _ -> true | _ -> false);
-    current_fn_ret_ty := llvm_type_of ret_ty;
+    (en.current_fn_is_res := match ret_ty with TResult _ -> true | _ -> false);
+    en.current_fn_ret_ty := llvm_type_of ret_ty;
 
     let live_vars =
       Hashtbl.fold
         (fun k (v, ty, is_mut) acc -> (k, v, ty, is_mut) :: acc)
-        named_values []
+        en.named_values []
     in
     let env_types =
       Array.of_list (List.map (fun (_, _, ty, _) -> llvm_type_of ty) live_vars)
@@ -568,7 +573,7 @@ module Expr = struct
       function_type (pointer_type ce_ctx) [| i64_type ce_ctx |]
     in
     let gc_malloc_fn =
-      match lookup_function "GC_malloc" ce_module with
+      match lookup_function en "GC_malloc" ce_module with
       | Some f -> f
       | None -> declare_function "GC_malloc" gc_malloc_ty ce_module
     in
@@ -595,14 +600,14 @@ module Expr = struct
         :: List.map (fun (p : param) -> llvm_type_of p.ty) params)
     in
     let ft = function_type (llvm_type_of ret_ty) param_types in
-    Hashtbl.add function_types actual_name (ft, ret_ty);
+    Hashtbl.add en.function_types actual_name (ft, ret_ty);
     let f = declare_function actual_name ft ce_module in
     set_linkage Linkage.Internal f;
     let bb = append_block ce_ctx "entry" f in
     position_at_end bb ce_builder;
 
-    let old_named_values = Hashtbl.copy named_values in
-    Hashtbl.clear named_values;
+    let old_named_values = Hashtbl.copy en.named_values in
+    Hashtbl.clear en.named_values;
 
     let inner_env_ptr_raw = param f 0 in
     let inner_env_ptr =
@@ -619,7 +624,7 @@ module Expr = struct
         let loaded_val = build_load val_ty gep "env_load" ce_builder in
         let local_alloca = build_alloca val_ty k ce_builder in
         ignore (build_store loaded_val local_alloca ce_builder);
-        Hashtbl.add named_values k (local_alloca, ty, is_mut))
+        Hashtbl.add en.named_values k (local_alloca, ty, is_mut))
       live_vars;
 
     Array.iteri
@@ -631,7 +636,7 @@ module Expr = struct
           let llvm_p_ty = llvm_type_of p_ty in
           let alloca = build_alloca llvm_p_ty n ce_builder in
           ignore (build_store a alloca ce_builder);
-          Hashtbl.add named_values n (alloca, p_ty, false)
+          Hashtbl.add en.named_values n (alloca, p_ty, false)
         end)
       (Llvm.params f);
 
@@ -642,8 +647,8 @@ module Expr = struct
     | Some _ -> ()
     | None ->
         if ret_ty = TVoid then ignore (build_ret_void ce_builder)
-        else if !current_fn_is_res then begin
-          let r_ty = !current_fn_ret_ty in
+        else if !(en.current_fn_is_res) then begin
+          let r_ty = !(en.current_fn_ret_ty) in
           let s1 =
             build_insertvalue (const_null r_ty)
               (const_int (i1_type ce_ctx) 0)
@@ -653,11 +658,11 @@ module Expr = struct
         end
         else raise (Error "Anonymous function missing a return statement"));
 
-    Hashtbl.clear named_values;
-    Hashtbl.iter (fun k v -> Hashtbl.add named_values k v) old_named_values;
+    Hashtbl.clear en.named_values;
+    Hashtbl.iter (fun k v -> Hashtbl.add en.named_values k v) old_named_values;
 
-    current_fn_is_res := was_res;
-    current_fn_ret_ty := was_ret_ty;
+    en.current_fn_is_res := was_res;
+    en.current_fn_ret_ty := was_ret_ty;
     position_at_end old_bb ce_builder;
 
     let closure_struct_ty =
@@ -673,15 +678,15 @@ module Expr = struct
 end
 
 module Stmt = struct
-  let gen_def_let llvm_type_of codegen_expr coerce_value name ismut ty expr_opt
-      =
+  let gen_def_let env llvm_type_of codegen_expr coerce_value name ismut ty
+      expr_opt =
     let raw_val_opt, inferred_ty =
       match expr_opt with
       | Some expr ->
           let raw_val = codegen_expr expr in
           let deduced_ty =
             if ty = TUnknown then
-              let inferred = infer_ast_type expr in
+              let inferred = infer_ast_type env expr in
               if inferred = TUnknown then
                 raise
                   (Error
@@ -703,7 +708,7 @@ module Stmt = struct
     let init_val =
       match raw_val_opt with
       | Some raw_val ->
-          let src_ty = infer_ast_type (Option.get expr_opt) in
+          let src_ty = infer_ast_type env (Option.get expr_opt) in
           let is_src_u = is_unsigned src_ty in
           coerce_value ll_ty raw_val false is_src_u
       | None -> const_null ll_ty
@@ -716,28 +721,31 @@ module Stmt = struct
     let alloca = build_alloca ll_ty name ce_builder_alloca in
 
     ignore (build_store init_val alloca ce_builder);
-    Hashtbl.add named_values name (alloca, inferred_ty, ismut);
+    Hashtbl.add env.named_values name (alloca, inferred_ty, ismut);
     alloca
 
-  and gen_def_fn llvm_type_of codegen_block name tparams params ret_ty body =
+  and gen_def_fn env llvm_type_of codegen_block name tparams params ret_ty body
+      =
+    let en = !env in
     if List.length tparams > 0 then begin
-      Hashtbl.add fn_templates name (tparams, params, ret_ty, body);
+      Hashtbl.add en.fn_templates name (tparams, params, ret_ty, body);
       const_null (void_type ce_ctx)
     end
     else begin
       let actual_name = if name = "main" then "__ce_main" else name in
 
-      let was_res = !current_fn_is_res in
-      let was_ret_ty = !current_fn_ret_ty in
+      let was_res = !(en.current_fn_is_res) in
+      let was_ret_ty = !(en.current_fn_ret_ty) in
 
-      (current_fn_is_res := match ret_ty with TResult _ -> true | _ -> false);
-      current_fn_ret_ty := llvm_type_of ret_ty;
+      (en.current_fn_is_res :=
+         match ret_ty with TResult _ -> true | _ -> false);
+      en.current_fn_ret_ty := llvm_type_of ret_ty;
 
       let param_types =
         Array.of_list (List.map (fun (p : param) -> llvm_type_of p.ty) params)
       in
       let ft = function_type (llvm_type_of ret_ty) param_types in
-      Hashtbl.add function_types actual_name (ft, ret_ty);
+      Hashtbl.add en.function_types actual_name (ft, ret_ty);
 
       let f = declare_function actual_name ft ce_module in
       set_linkage Linkage.Internal f;
@@ -745,7 +753,7 @@ module Stmt = struct
       let bb = append_block ce_ctx "entry" f in
       position_at_end bb ce_builder;
 
-      let old_named_values = Hashtbl.copy named_values in
+      let old_named_values = Hashtbl.copy en.named_values in
       Array.iteri
         (fun i a ->
           let n = (List.nth params i).param_name in
@@ -753,7 +761,7 @@ module Stmt = struct
           let llvm_p_ty = llvm_type_of p_ty in
           let alloca = build_alloca llvm_p_ty n ce_builder in
           ignore (build_store a alloca ce_builder);
-          Hashtbl.add named_values n (alloca, p_ty, false))
+          Hashtbl.add en.named_values n (alloca, p_ty, false))
         (Llvm.params f);
 
       codegen_block body;
@@ -763,8 +771,8 @@ module Stmt = struct
       | Some _ -> ()
       | None ->
           if ret_ty = TVoid then ignore (build_ret_void ce_builder)
-          else if !current_fn_is_res then begin
-            let r_ty = !current_fn_ret_ty in
+          else if !(en.current_fn_is_res) then begin
+            let r_ty = !(en.current_fn_ret_ty) in
             let s1 =
               build_insertvalue (const_null r_ty)
                 (const_int (i1_type ce_ctx) 0)
@@ -776,11 +784,11 @@ module Stmt = struct
             raise
               (Error ("Function '" ^ name ^ "' is missing a return statement")));
 
-      Hashtbl.clear named_values;
-      Hashtbl.iter (fun k v -> Hashtbl.add named_values k v) old_named_values;
+      Hashtbl.clear en.named_values;
+      Hashtbl.iter (fun k v -> Hashtbl.add en.named_values k v) old_named_values;
 
-      current_fn_is_res := was_res;
-      current_fn_ret_ty := was_ret_ty;
+      en.current_fn_is_res := was_res;
+      en.current_fn_ret_ty := was_ret_ty;
 
       if name = "main" then begin
         let c_main_ty = function_type (i32_type ce_ctx) [||] in

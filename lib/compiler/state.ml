@@ -3,36 +3,40 @@ open Ce_parser.Ast
 
 exception Error of string
 
-let type_aliases : (string, types) Hashtbl.t = Hashtbl.create 10
-
-let named_values : (string, llvalue * types * bool) Hashtbl.t =
-  Hashtbl.create 10
-
-let function_types : (string, lltype * types) Hashtbl.t = Hashtbl.create 10
-
-let struct_templates :
-    (string, (string * types) list * struct_field list) Hashtbl.t =
-  Hashtbl.create 10
-
-let impl_templates :
+type compiler_env = {
+  type_aliases : (string, types) Hashtbl.t;
+  named_values : (string, llvalue * types * bool) Hashtbl.t;
+  function_types : (string, lltype * types) Hashtbl.t;
+  struct_templates :
+    (string, (string * types) list * struct_field list) Hashtbl.t;
+  impl_templates :
     ( string,
       (string * types) list
       * (string * string * bool * param list * types * stmt list) list )
-    Hashtbl.t =
-  Hashtbl.create 10
+    Hashtbl.t;
+  fn_templates :
+    (string, (string * types) list * param list * types * stmt list) Hashtbl.t;
+  struct_registry :
+    (string, lltype * (string * int * bool * types) list) Hashtbl.t;
+  interface_registry : (string, fn_signature list) Hashtbl.t;
+  extern_aliases : (string, string) Hashtbl.t;
+  loop_exit_blocks : llbasicblock Stack.t;
+  current_fn_is_res : bool ref;
+  current_fn_ret_ty : lltype ref;
+}
 
-let fn_templates :
-    (string, (string * types) list * param list * types * stmt list) Hashtbl.t =
-  Hashtbl.create 10
-
-let struct_registry :
-    (string, lltype * (string * int * bool * types) list) Hashtbl.t =
-  Hashtbl.create 10
-
-let interface_registry : (string, fn_signature list) Hashtbl.t =
-  Hashtbl.create 10
-
-let extern_aliases : (string, string) Hashtbl.t = Hashtbl.create 10
-let loop_exit_blocks : llbasicblock Stack.t = Stack.create ()
-let current_fn_is_res = ref false
-let current_fn_ret_ty = ref (void_type ce_ctx)
+let create_env context =
+  {
+    type_aliases = Hashtbl.create 10;
+    named_values = Hashtbl.create 10;
+    function_types = Hashtbl.create 10;
+    struct_templates = Hashtbl.create 10;
+    impl_templates = Hashtbl.create 10;
+    fn_templates = Hashtbl.create 10;
+    struct_registry = Hashtbl.create 10;
+    interface_registry = Hashtbl.create 10;
+    extern_aliases = Hashtbl.create 10;
+    loop_exit_blocks = Stack.create ();
+    current_fn_is_res = ref false;
+    current_fn_ret_ty = ref @@ void_type context;
+  }

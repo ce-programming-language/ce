@@ -8,7 +8,7 @@ open Infer
 
 exception Error of string
 
-let rec llvm_type_of = function
+let rec llvm_type_of env = function
   | TInt | TUInt | TI32 | TU32 -> i32_type ce_ctx
   | TI8 | TU8 -> i8_type ce_ctx
   | TI16 | TU16 -> i16_type ce_ctx
@@ -21,36 +21,36 @@ let rec llvm_type_of = function
   | TString -> pointer_type ce_ctx
   | TChar -> i8_type ce_ctx
   | TPointer _ -> pointer_type ce_ctx
-  | TArray (n, ty) -> array_type (llvm_type_of ty) n
+  | TArray (n, ty) -> array_type (llvm_type_of env ty) n
   | TNamed name -> (
-      match Hashtbl.find_opt type_aliases name with
-      | Some actual_ty -> llvm_type_of actual_ty
+      match Hashtbl.find_opt env.type_aliases name with
+      | Some actual_ty -> llvm_type_of env actual_ty
       | None -> (
-          match Hashtbl.find_opt struct_registry name with
+          match Hashtbl.find_opt env.struct_registry name with
           | Some (llty, _) -> llty
           | None -> (
-              match Hashtbl.find_opt interface_registry name with
+              match Hashtbl.find_opt env.interface_registry name with
               | Some _ ->
                   struct_type ce_ctx
                     [| pointer_type ce_ctx; pointer_type ce_ctx |]
               | None -> raise (Error ("Undefined type: " ^ name)))))
   | TStruct name -> (
       try
-        let llty, _ = Hashtbl.find struct_registry name in
+        let llty, _ = Hashtbl.find env.struct_registry name in
         llty
       with Not_found -> raise (Error ("Unknown struct '" ^ name ^ "'")))
   | TUnknown -> raise (Error "Cannot compile unknown type")
   | TGenericParam name ->
       raise (Error ("Uninstantiated generic parameter '" ^ name))
   | TResult ty ->
-      let inner = llvm_type_of ty in
+      let inner = llvm_type_of env ty in
       let ok_ty = if inner = void_type ce_ctx then i1_type ce_ctx else inner in
       struct_type ce_ctx [| i1_type ce_ctx; ok_ty; pointer_type ce_ctx |]
   | TGenericInst (name, arg_types) -> (
       let mangled_name =
         name ^ "_" ^ String.concat "_" (List.map show_types arg_types)
       in
-      match Hashtbl.find_opt struct_registry mangled_name with
+      match Hashtbl.find_opt env.struct_registry mangled_name with
       | Some (llty, _) -> llty
       | None ->
           let saved_bb =
@@ -58,7 +58,7 @@ let rec llvm_type_of = function
           in
 
           let params, fields =
-            try Hashtbl.find struct_templates name
+            try Hashtbl.find env.struct_templates name
             with Not_found ->
               raise
                 (Error ("Cannot find generic struct template for '" ^ name ^ "'"))
@@ -81,9 +81,10 @@ let rec llvm_type_of = function
           in
 
           ignore
-            (codegen_stmt (DefStruct (mangled_name, [], specialized_fields)));
+            (codegen_stmt env
+               (DefStruct (mangled_name, [], specialized_fields)));
 
-          (match Hashtbl.find_opt impl_templates name with
+          (match Hashtbl.find_opt env.impl_templates name with
           | Some (_, methods) ->
               let specialized_methods =
                 List.map
@@ -107,25 +108,27 @@ let rec llvm_type_of = function
                   methods
               in
               ignore
-                (codegen_stmt (Impl (mangled_name, [], specialized_methods)))
+                (codegen_stmt env
+                   (Impl (mangled_name, [], specialized_methods)))
           | None -> ());
 
           (match saved_bb with
           | Some bb -> position_at_end bb ce_builder
           | None -> ());
 
-          fst (Hashtbl.find struct_registry mangled_name))
-  | TTuple ts -> struct_type ce_ctx (Array.of_list (List.map llvm_type_of ts))
+          fst (Hashtbl.find env.struct_registry mangled_name))
+  | TTuple ts ->
+      struct_type ce_ctx (Array.of_list (List.map (llvm_type_of env) ts))
   | TFn _ -> struct_type ce_ctx [| pointer_type ce_ctx; pointer_type ce_ctx |]
 
-and instantiate_generic_fn name targs =
+and instantiate_generic_fn env name targs =
   let mangled_name =
     name ^ "_" ^ String.concat "_" (List.map show_types targs)
   in
 
-  if Hashtbl.mem function_types mangled_name then mangled_name
+  if Hashtbl.mem env.function_types mangled_name then mangled_name
   else
-    begin match Hashtbl.find_opt fn_templates name with
+    begin match Hashtbl.find_opt env.fn_templates name with
     | Some (tparams, fn_params, ret_ty, body) ->
         let type_map =
           List.map2 (fun (p_name, _) arg_ty -> (p_name, arg_ty)) tparams targs
@@ -143,7 +146,7 @@ and instantiate_generic_fn name targs =
         in
 
         ignore
-          (codegen_stmt
+          (codegen_stmt env
              (DefFN (mangled_name, [], sub_params, sub_ret_ty, sub_body)));
         (match saved_bb with
         | Some bb -> position_at_end bb ce_builder
@@ -152,7 +155,7 @@ and instantiate_generic_fn name targs =
     | None -> raise (Error ("Undefined generic function: " ^ name))
     end
 
-and codegen_expr = function
+and codegen_expr (env : State.compiler_env) = function
   | Void -> const_null (void_type ce_ctx)
   | Nil -> const_null (pointer_type ce_ctx)
   | Int n -> const_int (i32_type ce_ctx) n
@@ -161,28 +164,33 @@ and codegen_expr = function
   | Char c -> const_int (i8_type ce_ctx) (Char.code c)
   | String s -> build_global_stringptr s "strtmp" ce_builder
   | ArrayAccess (name, index_expr) ->
-      Codegen.Expr.gen_array_access llvm_type_of codegen_expr name index_expr
-  | Let name -> Codegen.Expr.gen_let llvm_type_of codegen_expr name
+      Codegen.Expr.gen_array_access env (llvm_type_of env) (codegen_expr env)
+        name index_expr
+  | Let name ->
+      Codegen.Expr.gen_let env (llvm_type_of env) (codegen_expr env) name
   | Call (name, targs, args) ->
-      Codegen.Expr.gen_call llvm_type_of codegen_expr coerce_value
-        instantiate_generic_fn name targs args
+      Codegen.Expr.gen_call env (llvm_type_of env) (codegen_expr env)
+        coerce_value
+        (instantiate_generic_fn env)
+        name targs args
   | If (cond, then_body, elif_branches, else_body) ->
-      Codegen.Expr.gen_if codegen_expr codegen_stmt cond then_body elif_branches
-        else_body
+      Codegen.Expr.gen_if (codegen_expr env) (codegen_stmt env) cond then_body
+        elif_branches else_body
   | Catch (expr, err_name, catch_ty, body) ->
-      Codegen.Expr.gen_catch llvm_type_of codegen_expr codegen_stmt expr
-        err_name catch_ty body
+      Codegen.Expr.gen_catch env (llvm_type_of env) (codegen_expr env)
+        (codegen_stmt env) expr err_name catch_ty body
   | CatchExpr (expr, handler) ->
-      Codegen.Expr.gen_catch_expr llvm_type_of codegen_expr coerce_value expr
-        handler
+      Codegen.Expr.gen_catch_expr env (llvm_type_of env) (codegen_expr env)
+        coerce_value expr handler
   | AnonFN (params, ret_ty, body) ->
-      Codegen.Expr.gen_anon_fn llvm_type_of codegen_block params ret_ty body
+      Codegen.Expr.gen_anon_fn (ref env) (llvm_type_of env) (codegen_block env)
+        params ret_ty body
   | Ref (Let name) -> (
       if String.contains name '.' then
         let parts = String.split_on_char '.' name in
         let base_name = List.hd parts in
         let v, ast_ty, _ =
-          try Hashtbl.find named_values base_name
+          try Hashtbl.find env.named_values base_name
           with Not_found ->
             raise
               (Error ("Cannot reference unknown variable: '" ^ base_name ^ "'"))
@@ -192,95 +200,96 @@ and codegen_expr = function
         in
         let base_ptr =
           if is_ptr then
-            build_load (llvm_type_of ast_ty) v "auto_deref_ptr" ce_builder
+            build_load (llvm_type_of env ast_ty) v "auto_deref_ptr" ce_builder
           else v
         in
-        resolve_property_ptr base_ptr
-          (llvm_type_of base_struct_ast_ty)
+        resolve_property_ptr env base_ptr
+          (llvm_type_of env base_struct_ast_ty)
           (List.tl parts)
       else
         try
-          let ptr_val, _, _ = Hashtbl.find named_values name in
+          let ptr_val, _, _ = Hashtbl.find env.named_values name in
           ptr_val
         with Not_found ->
           raise (Error ("Cannot reference unknown variable: '" ^ name ^ "'")))
   | Ref _ -> raise (Error "Can only reference variables (e.g., &a)")
   | Deref e ->
-      let ptr_val = codegen_expr e in
-      let ptr_ast_ty = infer_ast_type e in
+      let ptr_val = codegen_expr env e in
+      let ptr_ast_ty = infer_ast_type env e in
       let inner_ty =
         match ptr_ast_ty with
         | TPointer t -> t
         | TString -> TChar
         | _ -> raise (Error "Cannot dereference non-pointer expression")
       in
-      build_load (llvm_type_of inner_ty) ptr_val "dereftmp" ce_builder
+      build_load (llvm_type_of env inner_ty) ptr_val "dereftmp" ce_builder
   | Add (l, r) ->
-      let lv, rv = (codegen_expr l, codegen_expr r) in
+      let lv, rv = (codegen_expr env l, codegen_expr env r) in
       if classify_type (type_of lv) = TypeKind.Pointer then
         build_ptr_arith lv rv build_add "addptr"
       else if classify_type (type_of rv) = TypeKind.Pointer then
         build_ptr_arith rv lv build_add "addptr"
       else build_numeric_op lv rv build_add build_fadd "addtmp"
   | Sub (l, r) ->
-      let lv, rv = (codegen_expr l, codegen_expr r) in
+      let lv, rv = (codegen_expr env l, codegen_expr env r) in
       if classify_type (type_of lv) = TypeKind.Pointer then
         build_ptr_arith lv rv build_sub "subptr"
       else build_numeric_op lv rv build_sub build_fsub "subtmp"
   | Mul (l, r) ->
-      let lv, rv = (codegen_expr l, codegen_expr r) in
+      let lv, rv = (codegen_expr env l, codegen_expr env r) in
       build_numeric_op lv rv build_mul build_fmul "multmp"
   | Div (l, r) ->
-      let lv, rv = (codegen_expr l, codegen_expr r) in
+      let lv, rv = (codegen_expr env l, codegen_expr env r) in
       build_numeric_op lv rv
-        (if is_unsigned (infer_ast_type l) then build_udiv else build_sdiv)
+        (if is_unsigned (infer_ast_type env l) then build_udiv else build_sdiv)
         build_fdiv "divtmp"
   | Mod (l, r) ->
-      let lv, rv = (codegen_expr l, codegen_expr r) in
+      let lv, rv = (codegen_expr env l, codegen_expr env r) in
       build_numeric_op lv rv
-        (if is_unsigned (infer_ast_type l) then build_urem else build_srem)
+        (if is_unsigned (infer_ast_type env l) then build_urem else build_srem)
         build_frem "modtmp"
   | Eq (l, r) ->
-      let lv, rv = (codegen_expr l, codegen_expr r) in
+      let lv, rv = (codegen_expr env l, codegen_expr env r) in
       build_numeric_op lv rv (build_icmp Icmp.Eq) (build_fcmp Fcmp.Oeq) "eqtmp"
   | Lt (l, r) ->
-      let lv, rv = (codegen_expr l, codegen_expr r) in
+      let lv, rv = (codegen_expr env l, codegen_expr env r) in
       build_numeric_op lv rv
         (build_icmp
-           (if is_unsigned (infer_ast_type l) then Icmp.Ult else Icmp.Slt))
+           (if is_unsigned (infer_ast_type env l) then Icmp.Ult else Icmp.Slt))
         (build_fcmp Fcmp.Olt) "lttmp"
   | Lte (l, r) ->
-      let lv, rv = (codegen_expr l, codegen_expr r) in
+      let lv, rv = (codegen_expr env l, codegen_expr env r) in
       build_numeric_op lv rv
         (build_icmp
-           (if is_unsigned (infer_ast_type l) then Icmp.Ule else Icmp.Sle))
+           (if is_unsigned (infer_ast_type env l) then Icmp.Ule else Icmp.Sle))
         (build_fcmp Fcmp.Ole) "ltetmp"
   | Gt (l, r) ->
-      let lv, rv = (codegen_expr l, codegen_expr r) in
+      let lv, rv = (codegen_expr env l, codegen_expr env r) in
       build_numeric_op lv rv
         (build_icmp
-           (if is_unsigned (infer_ast_type l) then Icmp.Ugt else Icmp.Sgt))
+           (if is_unsigned (infer_ast_type env l) then Icmp.Ugt else Icmp.Sgt))
         (build_fcmp Fcmp.Ogt) "gttmp"
   | Gte (l, r) ->
-      let lv, rv = (codegen_expr l, codegen_expr r) in
+      let lv, rv = (codegen_expr env l, codegen_expr env r) in
       build_numeric_op lv rv
         (build_icmp
-           (if is_unsigned (infer_ast_type l) then Icmp.Uge else Icmp.Sge))
+           (if is_unsigned (infer_ast_type env l) then Icmp.Uge else Icmp.Sge))
         (build_fcmp Fcmp.Oge) "gtetmp"
   | And (l, r) ->
-      build_and (codegen_expr l) (codegen_expr r) "andtmp" ce_builder
-  | Or (l, r) -> build_or (codegen_expr l) (codegen_expr r) "ortmp" ce_builder
+      build_and (codegen_expr env l) (codegen_expr env r) "andtmp" ce_builder
+  | Or (l, r) ->
+      build_or (codegen_expr env l) (codegen_expr env r) "ortmp" ce_builder
   | Neg e ->
-      let v = codegen_expr e in
+      let v = codegen_expr env e in
       if type_of v = double_type ce_ctx then build_fneg v "fnegtmp" ce_builder
       else build_neg v "negtmp" ce_builder
   | Not e ->
-      let v = codegen_expr e in
+      let v = codegen_expr env e in
       if type_of v = i1_type ce_ctx then build_not v "nottmp" ce_builder
       else
         raise (Error "NOT operator (!) can only be applied to boolean values")
   | Array (n, ty, elems) ->
-      let arr_ty = array_type (llvm_type_of ty) n in
+      let arr_ty = array_type (llvm_type_of env ty) n in
       let alloc = build_alloca arr_ty "arrtmp" ce_builder in
       List.iteri
         (fun i e ->
@@ -289,12 +298,12 @@ and codegen_expr = function
               [| const_int (i32_type ce_ctx) 0; const_int (i32_type ce_ctx) i |]
               "elemtmp" ce_builder
           in
-          ignore (build_store (codegen_expr e) ptr ce_builder))
+          ignore (build_store (codegen_expr env e) ptr ce_builder))
         elems;
       build_load arr_ty alloc "arrload" ce_builder
   | Struct (name, type_args, fields) ->
       if type_args <> [] then begin
-        ignore (llvm_type_of (TGenericInst (name, type_args)))
+        ignore (llvm_type_of env (TGenericInst (name, type_args)))
       end;
 
       let mangled_name =
@@ -302,7 +311,7 @@ and codegen_expr = function
         else name ^ "_" ^ String.concat "_" (List.map show_types type_args)
       in
       let llty, field_map =
-        try Hashtbl.find struct_registry mangled_name
+        try Hashtbl.find env.struct_registry mangled_name
         with Not_found ->
           raise (Error ("Cannot find struct '" ^ name ^ "' for instantiation"))
       in
@@ -316,20 +325,20 @@ and codegen_expr = function
           in
           let fptr = build_struct_gep llty alloc fidx "fieldptr" ce_builder in
           let expected_ty = (struct_element_types llty).(fidx) in
-          let raw_val = codegen_expr fexpr in
+          let raw_val = codegen_expr env fexpr in
           let val_to_store = coerce_value expected_ty raw_val false false in
           ignore (build_store val_to_store fptr ce_builder))
         fields;
 
       build_load llty alloc "structload" ce_builder
   | Tuple elems ->
-      let lltypes = List.map (fun e -> type_of (codegen_expr e)) elems in
+      let lltypes = List.map (fun e -> type_of (codegen_expr env e)) elems in
       let struct_ty = struct_type ce_ctx (Array.of_list lltypes) in
       let alloc = build_alloca struct_ty "tupletmp" ce_builder in
       List.iteri
         (fun i e ->
           ignore
-            (build_store (codegen_expr e)
+            (build_store (codegen_expr env e)
                (build_struct_gep struct_ty alloc i "tupleelem" ce_builder)
                ce_builder))
         elems;
@@ -515,16 +524,16 @@ and coerce_value expected_ll_ty raw_val is_unsigned_target is_unsigned_source =
       end
       else raw_val
 
-and codegen_block stmts =
+and codegen_block (env : State.compiler_env) stmts =
   List.iter
     (fun s ->
       if Option.is_none (block_terminator (insertion_block ce_builder)) then
-        ignore (codegen_stmt s))
+        ignore (codegen_stmt env s))
     stmts
 
-and codegen_stmt = function
+and codegen_stmt (env : State.compiler_env) = function
   | Expr e ->
-      let v = codegen_expr e in
+      let v = codegen_expr env e in
       let ty = type_of v in
       let is_result =
         match classify_type ty with
@@ -539,22 +548,22 @@ and codegen_stmt = function
         ignore (coerce_value (struct_element_types ty).(1) v false false);
       const_null (void_type ce_ctx)
   | DefLet (name, ismut, ty, expr_opt) ->
-      Codegen.Stmt.gen_def_let llvm_type_of codegen_expr coerce_value name ismut
-        ty expr_opt
+      Codegen.Stmt.gen_def_let env (llvm_type_of env) (codegen_expr env)
+        coerce_value name ismut ty expr_opt
   | DefFN (name, tparams, params, ret_ty, body) ->
-      Codegen.Stmt.gen_def_fn llvm_type_of codegen_block name tparams params
-        ret_ty body
+      Codegen.Stmt.gen_def_fn (ref env) (llvm_type_of env) (codegen_block env)
+        name tparams params ret_ty body
   | DefType (name, underlying_ty) ->
-      Hashtbl.add type_aliases name underlying_ty;
+      Hashtbl.add env.type_aliases name underlying_ty;
       const_null (void_type ce_ctx)
   | DefStruct (name, params, fields) ->
       if List.length params > 0 then begin
-        Hashtbl.add struct_templates name (params, fields);
+        Hashtbl.add env.struct_templates name (params, fields);
         const_null (void_type ce_ctx)
       end
       else begin
         let field_types =
-          Array.of_list (List.map (fun f -> llvm_type_of f.ty) fields)
+          Array.of_list (List.map (fun f -> llvm_type_of env f.ty) fields)
         in
         let struct_llty = named_struct_type ce_ctx name in
         struct_set_body struct_llty field_types false;
@@ -562,25 +571,25 @@ and codegen_stmt = function
         let field_map =
           List.mapi (fun i f -> (f.field_name, i, f.is_mut, f.ty)) fields
         in
-        Hashtbl.add struct_registry name (struct_llty, field_map);
+        Hashtbl.add env.struct_registry name (struct_llty, field_map);
         const_null (void_type ce_ctx)
       end
   | Assign (name, expr) ->
-      let val_ = codegen_expr expr in
+      let val_ = codegen_expr env expr in
       let var_ptr, expected_ll_ty, is_u =
         if String.contains name '.' then
           let parts = String.split_on_char '.' name in
           let base_name = List.hd parts in
-          let v, ast_ty, _ = Hashtbl.find named_values base_name in
+          let v, ast_ty, _ = Hashtbl.find env.named_values base_name in
 
           let is_ptr, base_struct_ast_ty =
             match ast_ty with TPointer t -> (true, t) | t -> (false, t)
           in
-          let base_struct_llty = llvm_type_of base_struct_ast_ty in
+          let base_struct_llty = llvm_type_of env base_struct_ast_ty in
 
           let base_ptr =
             if is_ptr then
-              build_load (llvm_type_of ast_ty) v "auto_deref_ptr" ce_builder
+              build_load (llvm_type_of env ast_ty) v "auto_deref_ptr" ce_builder
             else v
           in
 
@@ -592,7 +601,7 @@ and codegen_stmt = function
                 | Some s_name ->
                     let clean_name = clean_struct_name s_name in
                     let _, field_map =
-                      Hashtbl.find struct_registry clean_name
+                      Hashtbl.find env.struct_registry clean_name
                     in
                     let _, idx, is_mut, _ =
                       List.find (fun (n, _, _, _) -> n = prop) field_map
@@ -622,23 +631,23 @@ and codegen_stmt = function
           (final_ptr, final_ty, false)
         else
           let v, ast_ty, ismut =
-            try Hashtbl.find named_values name
+            try Hashtbl.find env.named_values name
             with Not_found ->
               raise (Error ("Unknown variable: '" ^ name ^ "'"))
           in
           if not ismut then
             raise (Error ("Cannot assign to immutable variable '" ^ name ^ "'"));
 
-          (v, llvm_type_of ast_ty, is_unsigned ast_ty)
+          (v, llvm_type_of env ast_ty, is_unsigned ast_ty)
       in
-      let src_ty = infer_ast_type expr in
+      let src_ty = infer_ast_type env expr in
       let is_src_u = is_unsigned src_ty in
       let val_to_store = coerce_value expected_ll_ty val_ is_u is_src_u in
       ignore (build_store val_to_store var_ptr ce_builder);
       val_to_store
   | ArrayAssign (name, index_expr, val_expr) ->
       let array_ptr_val, array_ty =
-        match Hashtbl.find_opt named_values name with
+        match Hashtbl.find_opt env.named_values name with
         | Some (v, ty, ismut) ->
             if not ismut then
               raise (Error ("Cannot assign to immutable array '" ^ name ^ "'"));
@@ -647,21 +656,22 @@ and codegen_stmt = function
             raise (Error ("Array '" ^ name ^ "' not found for assignment"))
       in
 
-      let idx_val = codegen_expr index_expr in
-      let val_to_store = codegen_expr val_expr in
+      let idx_val = codegen_expr env index_expr in
+      let val_to_store = codegen_expr env val_expr in
 
       let zero = const_int (i32_type ce_ctx) 0 in
       let indices = [| zero; idx_val |] in
       let element_ptr =
-        build_in_bounds_gep (llvm_type_of array_ty) array_ptr_val indices
-          "arrayidx" ce_builder
+        build_in_bounds_gep
+          (llvm_type_of env array_ty)
+          array_ptr_val indices "arrayidx" ce_builder
       in
 
       ignore (build_store val_to_store element_ptr ce_builder);
       val_to_store
   | DerefAssign (ptr_expr, val_expr) ->
-      let actual_ptr = codegen_expr ptr_expr in
-      let ptr_ast_ty = infer_ast_type ptr_expr in
+      let actual_ptr = codegen_expr env ptr_expr in
+      let ptr_ast_ty = infer_ast_type env ptr_expr in
       let expected_ast_ty =
         match ptr_ast_ty with
         | TPointer t -> t
@@ -672,12 +682,12 @@ and codegen_stmt = function
                  "Left-hand side of dereference assignment must be a pointer")
       in
 
-      let raw_val = codegen_expr val_expr in
-      let src_ty = infer_ast_type val_expr in
+      let raw_val = codegen_expr env val_expr in
+      let src_ty = infer_ast_type env val_expr in
       let is_src_u = is_unsigned src_ty in
       let val_to_store =
         coerce_value
-          (llvm_type_of expected_ast_ty)
+          (llvm_type_of env expected_ast_ty)
           raw_val
           (is_unsigned expected_ast_ty)
           is_src_u
@@ -686,13 +696,13 @@ and codegen_stmt = function
       ignore (build_store val_to_store actual_ptr ce_builder);
       val_to_store
   | Block stmts ->
-      codegen_block stmts;
+      codegen_block env stmts;
       const_null (void_type ce_ctx)
   | For (init, cond, mut, stmts) ->
       let is_foreach =
         match (init, cond, mut) with
         | None, Some c, None -> (
-            let c_ty = infer_ast_type c in
+            let c_ty = infer_ast_type env c in
             match c_ty with
             | TArray _ -> true
             | TGenericInst (n, _) when n = "Slice" -> true
@@ -700,12 +710,12 @@ and codegen_stmt = function
         | _ -> false
       in
       if is_foreach then
-        codegen_stmt (ForEach (None, None, Option.get cond, stmts))
+        codegen_stmt env (ForEach (None, None, Option.get cond, stmts))
       else begin
         let init_var_name =
           match init with Some (DefLet (n, _, _, _)) -> Some n | _ -> None
         in
-        (match init with Some s -> ignore (codegen_stmt s) | None -> ());
+        (match init with Some s -> ignore (codegen_stmt env s) | None -> ());
 
         let the_function = block_parent (insertion_block ce_builder) in
         let cond_bb = append_block ce_ctx "loop_cond" the_function in
@@ -718,35 +728,35 @@ and codegen_stmt = function
         position_at_end cond_bb ce_builder;
         (match cond with
         | Some c ->
-            let cond_val = codegen_expr c in
+            let cond_val = codegen_expr env c in
             ignore (build_cond_br cond_val loop_bb after_bb ce_builder)
         | None -> ignore (build_br loop_bb ce_builder));
 
         position_at_end loop_bb ce_builder;
-        Stack.push after_bb loop_exit_blocks;
+        Stack.push after_bb env.loop_exit_blocks;
 
-        codegen_block stmts;
+        codegen_block env stmts;
 
         if Option.is_none (block_terminator (insertion_block ce_builder)) then
           ignore (build_br mut_bb ce_builder);
 
         position_at_end mut_bb ce_builder;
-        (match mut with Some m -> ignore (codegen_stmt m) | None -> ());
+        (match mut with Some m -> ignore (codegen_stmt env m) | None -> ());
 
         ignore (build_br cond_bb ce_builder);
 
-        ignore (Stack.pop loop_exit_blocks);
+        ignore (Stack.pop env.loop_exit_blocks);
         position_at_end after_bb ce_builder;
 
         (match init_var_name with
-        | Some n -> Hashtbl.remove named_values n
+        | Some n -> Hashtbl.remove env.named_values n
         | None -> ());
 
         const_null (void_type ce_ctx)
       end
   | ForEach (idx_name_opt, val_name_opt, iter_expr, stmts) ->
-      let iter_val = codegen_expr iter_expr in
-      let iter_ast_ty = infer_ast_type iter_expr in
+      let iter_val = codegen_expr env iter_expr in
+      let iter_ast_ty = infer_ast_type env iter_expr in
 
       let the_function = block_parent (insertion_block ce_builder) in
       let cond_bb = append_block ce_ctx "foreach_cond" the_function in
@@ -777,11 +787,11 @@ and codegen_stmt = function
       ignore (build_cond_br cmp loop_bb after_bb ce_builder);
 
       position_at_end loop_bb ce_builder;
-      Stack.push after_bb loop_exit_blocks;
+      Stack.push after_bb env.loop_exit_blocks;
 
       (match idx_name_opt with
       | Some idx_name ->
-          Hashtbl.add named_values idx_name (idx_alloc, TI32, false)
+          Hashtbl.add env.named_values idx_name (idx_alloc, TI32, false)
       | None -> ());
 
       (match val_name_opt with
@@ -789,16 +799,17 @@ and codegen_stmt = function
           let elem_val =
             if is_array then begin
               let arr_tmp =
-                build_alloca (llvm_type_of iter_ast_ty) "arr_tmp" ce_builder
+                build_alloca (llvm_type_of env iter_ast_ty) "arr_tmp" ce_builder
               in
               ignore (build_store iter_val arr_tmp ce_builder);
               let zero = const_int (i32_type ce_ctx) 0 in
               let gep =
-                build_in_bounds_gep (llvm_type_of iter_ast_ty) arr_tmp
-                  [| zero; current_idx |] "arr_gep" ce_builder
+                build_in_bounds_gep
+                  (llvm_type_of env iter_ast_ty)
+                  arr_tmp [| zero; current_idx |] "arr_gep" ce_builder
               in
               build_load
-                (element_type (llvm_type_of iter_ast_ty))
+                (element_type (llvm_type_of env iter_ast_ty))
                 gep "arr_elem" ce_builder
             end
             else begin
@@ -823,16 +834,16 @@ and codegen_stmt = function
           in
           let val_alloc = build_alloca (type_of elem_val) val_name ce_builder in
           ignore (build_store elem_val val_alloc ce_builder);
-          Hashtbl.add named_values val_name (val_alloc, elem_ast_ty, false)
+          Hashtbl.add env.named_values val_name (val_alloc, elem_ast_ty, false)
       | None -> ());
 
-      codegen_block stmts;
+      codegen_block env stmts;
 
       (match idx_name_opt with
-      | Some idx_name -> Hashtbl.remove named_values idx_name
+      | Some idx_name -> Hashtbl.remove env.named_values idx_name
       | None -> ());
       (match val_name_opt with
-      | Some val_name -> Hashtbl.remove named_values val_name
+      | Some val_name -> Hashtbl.remove env.named_values val_name
       | None -> ());
 
       if Option.is_none (block_terminator (insertion_block ce_builder)) then begin
@@ -845,20 +856,20 @@ and codegen_stmt = function
         ignore (build_br cond_bb ce_builder)
       end;
 
-      ignore (Stack.pop loop_exit_blocks);
+      ignore (Stack.pop env.loop_exit_blocks);
       position_at_end after_bb ce_builder;
 
       const_null (void_type ce_ctx)
   | Break ->
-      if Stack.is_empty loop_exit_blocks then
+      if Stack.is_empty env.loop_exit_blocks then
         raise (Error "Break outside of a loop");
-      let exit_block = Stack.top loop_exit_blocks in
+      let exit_block = Stack.top env.loop_exit_blocks in
       ignore (build_br exit_block ce_builder);
       const_null (void_type ce_ctx)
   | Return e ->
-      let v = codegen_expr e in
-      if !current_fn_is_res then begin
-        let ret_ty = !current_fn_ret_ty in
+      let v = codegen_expr env e in
+      if !(env.current_fn_is_res) then begin
+        let ret_ty = !(env.current_fn_ret_ty) in
         let s1 =
           build_insertvalue (const_null ret_ty)
             (const_int (i1_type ce_ctx) 0)
@@ -880,7 +891,7 @@ and codegen_stmt = function
   | Import _ -> const_null (void_type ce_ctx)
   | Impl (name, params, methods) ->
       if List.length params > 0 then begin
-        Hashtbl.add impl_templates name (params, methods);
+        Hashtbl.add env.impl_templates name (params, methods);
         const_null (void_type ce_ctx)
       end
       else begin
@@ -911,14 +922,14 @@ and codegen_stmt = function
             let self_param = { param_name = self_id; ty = self_ty } in
             let all_params = self_param :: m_params in
             ignore
-              (codegen_stmt
+              (codegen_stmt env
                  (DefFN (mangled_name, [], all_params, ret_ty, body))))
           methods;
         const_null (void_type ce_ctx)
       end
   | Raise e ->
-      let err_msg = codegen_expr e in
-      let ret_ty = !current_fn_ret_ty in
+      let err_msg = codegen_expr env e in
+      let ret_ty = !(env.current_fn_ret_ty) in
       let s1 =
         build_insertvalue (const_null ret_ty)
           (const_int (i1_type ce_ctx) 1)
@@ -928,17 +939,18 @@ and codegen_stmt = function
       ignore (build_ret s2 ce_builder);
       const_null (void_type ce_ctx)
   | DefInterface (name, sigs) ->
-      Hashtbl.add interface_registry name sigs;
+      Hashtbl.add env.interface_registry name sigs;
       const_null (void_type ce_ctx)
   | ExternFN (alias_opt, name, params, ret_ty) ->
       let c_name = match alias_opt with Some a -> a | None -> name in
-      if c_name <> name then Hashtbl.add extern_aliases name c_name;
+      if c_name <> name then Hashtbl.add env.extern_aliases name c_name;
 
       let param_types =
-        Array.of_list (List.map (fun (p : param) -> llvm_type_of p.ty) params)
+        Array.of_list
+          (List.map (fun (p : param) -> llvm_type_of env p.ty) params)
       in
-      let ft = function_type (llvm_type_of ret_ty) param_types in
-      Hashtbl.add function_types name (ft, ret_ty);
+      let ft = function_type (llvm_type_of env ret_ty) param_types in
+      Hashtbl.add env.function_types name (ft, ret_ty);
 
       let _ =
         match Llvm.lookup_function c_name ce_module with
@@ -961,5 +973,6 @@ let optimize the_module =
   the_module
 
 let compile (stmts : stmt list) =
-  List.iter (fun s -> ignore (codegen_stmt s)) stmts;
+  let env = State.create_env ce_ctx in
+  List.iter (fun s -> ignore (codegen_stmt env s)) stmts;
   optimize ce_module
