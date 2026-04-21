@@ -92,6 +92,7 @@ and stmt =
   | Return of expr
   | Block of stmt list
   | For of stmt option * expr option * stmt option * stmt list
+  | ForEach of string option * string option * expr * stmt list
   | Break
   | Import of string list
   | Raise of expr

@@ -689,45 +689,164 @@ and codegen_stmt = function
       codegen_block stmts;
       const_null (void_type ce_ctx)
   | For (init, cond, mut, stmts) ->
-      let init_var_name =
-        match init with Some (DefLet (n, _, _, _)) -> Some n | _ -> None
+      let is_foreach =
+        match (init, cond, mut) with
+        | None, Some c, None -> (
+            let c_ty = infer_ast_type c in
+            match c_ty with
+            | TArray _ -> true
+            | TGenericInst (n, _) when n = "Slice" -> true
+            | _ -> false)
+        | _ -> false
       in
-      (match init with Some s -> ignore (codegen_stmt s) | None -> ());
+      if is_foreach then
+        codegen_stmt (ForEach (None, None, Option.get cond, stmts))
+      else begin
+        let init_var_name =
+          match init with Some (DefLet (n, _, _, _)) -> Some n | _ -> None
+        in
+        (match init with Some s -> ignore (codegen_stmt s) | None -> ());
+
+        let the_function = block_parent (insertion_block ce_builder) in
+        let cond_bb = append_block ce_ctx "loop_cond" the_function in
+        let loop_bb = append_block ce_ctx "loop" the_function in
+        let mut_bb = append_block ce_ctx "loop_mut" the_function in
+        let after_bb = append_block ce_ctx "afterloop" the_function in
+
+        ignore (build_br cond_bb ce_builder);
+
+        position_at_end cond_bb ce_builder;
+        (match cond with
+        | Some c ->
+            let cond_val = codegen_expr c in
+            ignore (build_cond_br cond_val loop_bb after_bb ce_builder)
+        | None -> ignore (build_br loop_bb ce_builder));
+
+        position_at_end loop_bb ce_builder;
+        Stack.push after_bb loop_exit_blocks;
+
+        codegen_block stmts;
+
+        if Option.is_none (block_terminator (insertion_block ce_builder)) then
+          ignore (build_br mut_bb ce_builder);
+
+        position_at_end mut_bb ce_builder;
+        (match mut with Some m -> ignore (codegen_stmt m) | None -> ());
+
+        ignore (build_br cond_bb ce_builder);
+
+        ignore (Stack.pop loop_exit_blocks);
+        position_at_end after_bb ce_builder;
+
+        (match init_var_name with
+        | Some n -> Hashtbl.remove named_values n
+        | None -> ());
+
+        const_null (void_type ce_ctx)
+      end
+  | ForEach (idx_name_opt, val_name_opt, iter_expr, stmts) ->
+      let iter_val = codegen_expr iter_expr in
+      let iter_ast_ty = infer_ast_type iter_expr in
 
       let the_function = block_parent (insertion_block ce_builder) in
-      let cond_bb = append_block ce_ctx "loop_cond" the_function in
-      let loop_bb = append_block ce_ctx "loop" the_function in
-      let mut_bb = append_block ce_ctx "loop_mut" the_function in
-      let after_bb = append_block ce_ctx "afterloop" the_function in
+      let cond_bb = append_block ce_ctx "foreach_cond" the_function in
+      let loop_bb = append_block ce_ctx "foreach_loop" the_function in
+      let after_bb = append_block ce_ctx "afterforeach" the_function in
 
+      let is_array = match iter_ast_ty with TArray _ -> true | _ -> false in
+
+      let idx_alloc = build_alloca (i32_type ce_ctx) "foreach_idx" ce_builder in
+      ignore (build_store (const_int (i32_type ce_ctx) 0) idx_alloc ce_builder);
       ignore (build_br cond_bb ce_builder);
 
       position_at_end cond_bb ce_builder;
-      (match cond with
-      | Some c ->
-          let cond_val = codegen_expr c in
-          ignore (build_cond_br cond_val loop_bb after_bb ce_builder)
-      | None -> ignore (build_br loop_bb ce_builder));
+      let current_idx =
+        build_load (i32_type ce_ctx) idx_alloc "curr_idx" ce_builder
+      in
+
+      let len_val =
+        if is_array then
+          match iter_ast_ty with
+          | TArray (n, _) -> const_int (i32_type ce_ctx) n
+          | _ -> failwith ""
+        else build_extractvalue iter_val 1 "slice_len" ce_builder
+      in
+      let cmp =
+        build_icmp Icmp.Slt current_idx len_val "foreach_cmp" ce_builder
+      in
+      ignore (build_cond_br cmp loop_bb after_bb ce_builder);
 
       position_at_end loop_bb ce_builder;
       Stack.push after_bb loop_exit_blocks;
 
+      (match idx_name_opt with
+      | Some idx_name ->
+          Hashtbl.add named_values idx_name (idx_alloc, TI32, false)
+      | None -> ());
+
+      (match val_name_opt with
+      | Some val_name ->
+          let elem_val =
+            if is_array then begin
+              let arr_tmp =
+                build_alloca (llvm_type_of iter_ast_ty) "arr_tmp" ce_builder
+              in
+              ignore (build_store iter_val arr_tmp ce_builder);
+              let zero = const_int (i32_type ce_ctx) 0 in
+              let gep =
+                build_in_bounds_gep (llvm_type_of iter_ast_ty) arr_tmp
+                  [| zero; current_idx |] "arr_gep" ce_builder
+              in
+              build_load
+                (element_type (llvm_type_of iter_ast_ty))
+                gep "arr_elem" ce_builder
+            end
+            else begin
+              let slice_ptr =
+                build_extractvalue iter_val 0 "slice_ptr" ce_builder
+              in
+              let gep =
+                build_in_bounds_gep
+                  (element_type (type_of slice_ptr))
+                  slice_ptr [| current_idx |] "slice_gep" ce_builder
+              in
+              build_load
+                (element_type (type_of slice_ptr))
+                gep "slice_elem" ce_builder
+            end
+          in
+          let elem_ast_ty =
+            match iter_ast_ty with
+            | TArray (_, t) -> t
+            | TGenericInst (_, [ t ]) -> t
+            | _ -> TUnknown
+          in
+          let val_alloc = build_alloca (type_of elem_val) val_name ce_builder in
+          ignore (build_store elem_val val_alloc ce_builder);
+          Hashtbl.add named_values val_name (val_alloc, elem_ast_ty, false)
+      | None -> ());
+
       codegen_block stmts;
 
-      if Option.is_none (block_terminator (insertion_block ce_builder)) then
-        ignore (build_br mut_bb ce_builder);
+      (match idx_name_opt with
+      | Some idx_name -> Hashtbl.remove named_values idx_name
+      | None -> ());
+      (match val_name_opt with
+      | Some val_name -> Hashtbl.remove named_values val_name
+      | None -> ());
 
-      position_at_end mut_bb ce_builder;
-      (match mut with Some m -> ignore (codegen_stmt m) | None -> ());
-
-      ignore (build_br cond_bb ce_builder);
+      if Option.is_none (block_terminator (insertion_block ce_builder)) then begin
+        let next_idx =
+          build_add current_idx
+            (const_int (i32_type ce_ctx) 1)
+            "next_idx" ce_builder
+        in
+        ignore (build_store next_idx idx_alloc ce_builder);
+        ignore (build_br cond_bb ce_builder)
+      end;
 
       ignore (Stack.pop loop_exit_blocks);
       position_at_end after_bb ce_builder;
-
-      (match init_var_name with
-      | Some n -> Hashtbl.remove named_values n
-      | None -> ());
 
       const_null (void_type ce_ctx)
   | Break ->

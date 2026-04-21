@@ -166,6 +166,12 @@ and namespace_stmt prefix decls = function
           Option.map (namespace_expr prefix decls) cond,
           Option.map (namespace_stmt prefix decls) mut,
           List.map (namespace_stmt prefix decls) stmts )
+  | ForEach (idx, v, iter, stmts) ->
+      ForEach
+        ( idx,
+          v,
+          namespace_expr prefix decls iter,
+          List.map (namespace_stmt prefix decls) stmts )
   | Raise e -> Raise (namespace_expr prefix decls e)
   | DefFN (name, tparams, params, ty, body) ->
       let new_name =

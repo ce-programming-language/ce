@@ -109,6 +109,12 @@ and substitute_stmt type_map = function
           Option.map (substitute_expr type_map) cond,
           Option.map (substitute_stmt type_map) mut,
           List.map (substitute_stmt type_map) stmts )
+  | ForEach (idx, v, iter, stmts) ->
+      ForEach
+        ( idx,
+          v,
+          substitute_expr type_map iter,
+          List.map (substitute_stmt type_map) stmts )
   | DefFN (name, tparams, params, ret_ty, body) ->
       let s_params =
         List.map
