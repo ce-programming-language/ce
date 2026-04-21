@@ -13,7 +13,6 @@ depends: [
   "ocaml"
   "dune" {>= "3.22"}
   "menhir"
-  "sedlex"
   "ppx_deriving"
   "cmdliner"
   "fmt"

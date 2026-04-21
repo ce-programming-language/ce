@@ -22,9 +22,6 @@ doc:
 fmt:
 	dune fmt
 
-lint:
-	ocamlfind ocamlc -c -thread -package sedlex,menhir,ppx_deriving -i lib/**/*.ml
-
 release: clean
 	dune build --release
 	dune install --prefix=./_build/release

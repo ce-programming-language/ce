@@ -1,4 +1,3 @@
-(* lib/compiler/stmt_gen.ml *)
 open Llvm
 open Ce_parser.Ast
 open State

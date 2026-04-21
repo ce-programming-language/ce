@@ -25,7 +25,6 @@
   ocaml
   dune
   menhir
-  sedlex
   ppx_deriving
   cmdliner
   fmt
