@@ -311,7 +311,9 @@ and codegen_expr = function
 
       List.iter
         (fun (fname, fexpr) ->
-          let _, fidx, _ = List.find (fun (n, _, _) -> n = fname) field_map in
+          let _, fidx, _, _ =
+            List.find (fun (n, _, _, _) -> n = fname) field_map
+          in
           let fptr = build_struct_gep llty alloc fidx "fieldptr" ce_builder in
           let expected_ty = (struct_element_types llty).(fidx) in
           let raw_val = codegen_expr fexpr in
@@ -558,7 +560,7 @@ and codegen_stmt = function
         struct_set_body struct_llty field_types false;
 
         let field_map =
-          List.mapi (fun i f -> (f.field_name, i, f.is_mut)) fields
+          List.mapi (fun i f -> (f.field_name, i, f.is_mut, f.ty)) fields
         in
         Hashtbl.add struct_registry name (struct_llty, field_map);
         const_null (void_type ce_ctx)
@@ -592,8 +594,8 @@ and codegen_stmt = function
                     let _, field_map =
                       Hashtbl.find struct_registry clean_name
                     in
-                    let _, idx, is_mut =
-                      List.find (fun (n, _, _) -> n = prop) field_map
+                    let _, idx, is_mut, _ =
+                      List.find (fun (n, _, _, _) -> n = prop) field_map
                     in
                     if rest = [] && not is_mut then
                       raise

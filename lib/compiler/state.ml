@@ -25,7 +25,8 @@ let fn_templates :
     (string, (string * types) list * param list * types * stmt list) Hashtbl.t =
   Hashtbl.create 10
 
-let struct_registry : (string, lltype * (string * int * bool) list) Hashtbl.t =
+let struct_registry :
+    (string, lltype * (string * int * bool * types) list) Hashtbl.t =
   Hashtbl.create 10
 
 let interface_registry : (string, fn_signature list) Hashtbl.t =

@@ -69,8 +69,10 @@ module Expr = struct
                         match Hashtbl.find_opt struct_registry clean_name with
                         | Some (_, field_map) -> (
                             try
-                              let _, idx, _ =
-                                List.find (fun (n, _, _) -> n = prop) field_map
+                              let _, idx, _, _ =
+                                List.find
+                                  (fun (n, _, _, _) -> n = prop)
+                                  field_map
                               in
                               let next_val =
                                 build_extractvalue current_val idx "proptmp"
