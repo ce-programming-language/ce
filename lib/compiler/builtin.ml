@@ -129,19 +129,12 @@ let get name =
 
         let is_str_to_int =
           self_ast_ty = TString
-          && (target_ast_ty = TInt || target_ast_ty = TI32
-            || target_ast_ty = TI64 || target_ast_ty = TUInt
-            || target_ast_ty = TU8 || target_ast_ty = TU16
-            || target_ast_ty = TU32 || target_ast_ty = TU64
-            || target_ast_ty = TI8 || target_ast_ty = TU8
-            || target_ast_ty = TI16 || target_ast_ty = TU16
-            || target_ast_ty = TI128 || target_ast_ty = TU128)
+          && match target_ast_ty with TInt _ -> true | _ -> false
         in
 
         let is_str_to_float =
           self_ast_ty = TString
-          && (target_ast_ty = TFloat || target_ast_ty = TF64
-            || target_ast_ty = TF32)
+          && match target_ast_ty with TFloat _ -> true | _ -> false
         in
 
         if is_str_to_int then begin
@@ -366,21 +359,26 @@ let get name =
             let str_unk = build_global_stringptr "unknown" "s_unk" builder in
 
             let rec type_to_string = function
-              | TInt | TI32 -> "int"
-              | TFloat | TF64 -> "float"
+              | TInt (I32, Signed) -> "int"
+              | TInt (I32, Unsigned) -> "uint"
+              | TInt (size, sign) ->
+                  let prefix =
+                    match sign with Signed -> "i" | Unsigned -> "u"
+                  in
+                  let bits =
+                    match size with
+                    | I8 -> "8"
+                    | I16 -> "16"
+                    | I32 -> "32"
+                    | I64 -> "64"
+                    | I128 -> "128"
+                  in
+                  prefix ^ bits
+              | TFloat F64 -> "float"
+              | TFloat F32 -> "f32"
               | TBool -> "bool"
               | TString -> "string"
               | TChar -> "char"
-              | TI8 -> "i8"
-              | TI16 -> "i16"
-              | TI64 -> "i64"
-              | TI128 -> "i128"
-              | TUInt | TU32 -> "uint"
-              | TU8 -> "u8"
-              | TU16 -> "u16"
-              | TU64 -> "u64"
-              | TU128 -> "u128"
-              | TF32 -> "f32"
               | TTuple ts ->
                   "(" ^ String.concat ", " (List.map type_to_string ts) ^ ")"
               | TNamed n | TStruct n -> n

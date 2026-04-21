@@ -39,9 +39,7 @@ and resolve_property_ptr env current_ptr current_ty props =
   in
   get_gep current_ptr current_ty props
 
-and is_unsigned = function
-  | TUInt | TU8 | TU16 | TU32 | TU64 | TU128 -> true
-  | _ -> false
+and is_unsigned = function TInt (_, Unsigned) -> true | _ -> false
 
 and clean_struct_name s_name =
   if String.starts_with ~prefix:"struct." s_name then
@@ -52,21 +50,22 @@ and ast_base_type_name = function
   | TNamed n | TStruct n -> n
   | TGenericInst (n, arg_types) ->
       n ^ "_" ^ String.concat "_" (List.map show_types arg_types)
-  | TInt | TI32 -> "int"
-  | TFloat | TF64 -> "float"
   | TString -> "string"
   | TBool -> "bool"
   | TChar -> "char"
-  | TI8 -> "i8"
-  | TI16 -> "i16"
-  | TI64 -> "i64"
-  | TI128 -> "i128"
-  | TUInt | TU32 -> "uint"
-  | TU8 -> "u8"
-  | TU16 -> "u16"
-  | TU64 -> "u64"
-  | TU128 -> "u128"
-  | TF32 -> "f32"
+  | TInt (size, sign) ->
+      let prefix = match sign with Signed -> "i" | Unsigned -> "u" in
+      let bits =
+        match size with
+        | I8 -> "8"
+        | I16 -> "16"
+        | I32 -> "32"
+        | I64 -> "64"
+        | I128 -> "128"
+      in
+      prefix ^ bits
+  | TFloat F32 -> "f32"
+  | TFloat F64 -> "f64"
   | _ -> raise Not_found
 
 and build_ptr_arith lv rv op name =

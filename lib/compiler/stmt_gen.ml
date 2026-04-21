@@ -433,7 +433,8 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
 
         (match idx_name_opt with
         | Some idx_name ->
-            Hashtbl.add env.named_values idx_name (idx_alloc, TI32, false)
+            Hashtbl.add env.named_values idx_name
+              (idx_alloc, TInt (I32, Signed), false)
         | None -> ());
 
         (match val_name_opt with
@@ -547,21 +548,21 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
               let mangled_name = name ^ "::" ^ method_name in
               let base_ty =
                 match name with
-                | "int" -> TI32
-                | "float" -> TF64
-                | "uint" -> TU32
+                | "int" -> TInt (I32, Signed)
+                | "i8" -> TInt (I8, Signed)
+                | "i16" -> TInt (I16, Signed)
+                | "i64" -> TInt (I64, Signed)
+                | "i128" -> TInt (I128, Signed)
+                | "uint" -> TInt (I32, Unsigned)
+                | "u8" -> TInt (I8, Unsigned)
+                | "u16" -> TInt (I16, Unsigned)
+                | "u64" -> TInt (I64, Unsigned)
+                | "u128" -> TInt (I128, Unsigned)
+                | "f32" -> TFloat F32
+                | "float" -> TFloat F64
                 | "string" -> TString
                 | "bool" -> TBool
                 | "char" -> TChar
-                | "i8" -> TI8
-                | "i16" -> TI16
-                | "i64" -> TI64
-                | "i128" -> TI128
-                | "u8" -> TU8
-                | "u16" -> TU16
-                | "u64" -> TU64
-                | "u128" -> TU128
-                | "f32" -> TF32
                 | _ -> TNamed name
               in
 

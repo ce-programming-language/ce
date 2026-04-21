@@ -4,8 +4,8 @@ open Substitue
 open Utils
 
 let rec infer_ast_type env = function
-  | Int _ -> TInt
-  | Float _ -> TFloat
+  | Int _ -> TInt (I32, Signed)
+  | Float _ -> TFloat F64
   | Bool _ -> TBool
   | String _ -> TString
   | Char _ -> TChar

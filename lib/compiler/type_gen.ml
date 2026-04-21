@@ -8,13 +8,15 @@ module Make (Stmt : STMT) : TYPES = struct
   exception Error of string
 
   let rec llvm_type_of env = function
-    | TInt | TUInt | TI32 | TU32 -> i32_type ce_ctx
-    | TI8 | TU8 -> i8_type ce_ctx
-    | TI16 | TU16 -> i16_type ce_ctx
-    | TI64 | TU64 -> i64_type ce_ctx
-    | TI128 | TU128 -> integer_type ce_ctx 128
-    | TFloat | TF64 -> double_type ce_ctx
-    | TF32 -> float_type ce_ctx
+    | TInt (size, _) -> (
+        match size with
+        | I8 -> i8_type ce_ctx
+        | I16 -> i16_type ce_ctx
+        | I32 -> i32_type ce_ctx
+        | I64 -> i64_type ce_ctx
+        | I128 -> integer_type ce_ctx 128)
+    | TFloat F32 -> float_type ce_ctx
+    | TFloat F64 -> double_type ce_ctx
     | TBool -> i1_type ce_ctx
     | TVoid -> void_type ce_ctx
     | TString -> pointer_type ce_ctx

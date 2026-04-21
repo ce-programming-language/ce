@@ -4,6 +4,10 @@ let ce_ctx = global_context ()
 let ce_module = create_module ce_ctx "ce"
 let ce_builder = builder ce_ctx
 
+type int_size = I8 | I16 | I32 | I64 | I128 [@@deriving show, eq]
+type signedness = Signed | Unsigned [@@deriving show, eq]
+type float_size = F32 | F64 [@@deriving show, eq]
+
 type types =
   | TBool
   | TVoid
@@ -13,21 +17,8 @@ type types =
   | TNamed of string
   | TStruct of string
   | TResult of types
-  | TInt
-  | TI8
-  | TI16
-  | TI32
-  | TI64
-  | TI128
-  | TUInt
-  | TU8
-  | TU16
-  | TU32
-  | TU64
-  | TU128
-  | TFloat
-  | TF32
-  | TF64
+  | TInt of int_size * signedness
+  | TFloat of float_size
   | TUnknown
   | TGenericParam of string
   | TGenericInst of string * types list

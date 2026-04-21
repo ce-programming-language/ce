@@ -153,14 +153,30 @@ def_let:
   | LET MUT name = IDENT EQUALS e = expr        { DefLet (name, true, TUnknown, Some e) }
 
 type_scalar:
-  | TYPE_VOID  { TVoid }
-  | TYPE_STRING{ TString }
-  | TYPE_CHAR  { TChar }
-  | TYPE_BOOL  { TBool }
-  | TYPE_INT   { TI32 } | TYPE_I8 { TI8 } | TYPE_I16 { TI16 } | TYPE_I32 { TI32 } | TYPE_I64 { TI64 } | TYPE_I128 { TI128 }
-  | TYPE_UINT  { TU32 } | TYPE_U8 { TU8 } | TYPE_U16 { TU16 } | TYPE_U32 { TU32 } | TYPE_U64 { TU64 } | TYPE_U128 { TU128 }
-  | TYPE_FLOAT { TF64 } | TYPE_F32 { TF32 } | TYPE_F64 { TF64 }
-  | id = path { TNamed id }
+  | TYPE_VOID   { TVoid }
+  | TYPE_STRING { TString }
+  | TYPE_CHAR   { TChar }
+  | TYPE_BOOL   { TBool }
+  
+  | TYPE_INT    { TInt (I32, Signed) }
+  | TYPE_I8     { TInt (I8, Signed) }
+  | TYPE_I16    { TInt (I16, Signed) }
+  | TYPE_I32    { TInt (I32, Signed) }
+  | TYPE_I64    { TInt (I64, Signed) }
+  | TYPE_I128   { TInt (I128, Signed) }
+  
+  | TYPE_UINT   { TInt (I32, Unsigned) }
+  | TYPE_U8     { TInt (I8, Unsigned) }
+  | TYPE_U16    { TInt (I16, Unsigned) }
+  | TYPE_U32    { TInt (I32, Unsigned) }
+  | TYPE_U64    { TInt (I64, Unsigned) }
+  | TYPE_U128   { TInt (I128, Unsigned) }
+  
+  | TYPE_FLOAT  { TFloat F64 }
+  | TYPE_F32    { TFloat F32 }
+  | TYPE_F64    { TFloat F64 }
+  
+  | id = path   { TNamed id }
 
 types:
   | t = type_scalar                       { t }
