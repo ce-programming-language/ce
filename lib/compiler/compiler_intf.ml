@@ -18,3 +18,26 @@ module type STMT = sig
   val gen_block : compiler_env -> stmt list -> unit
   val codegen : compiler_env -> stmt -> llvalue
 end
+
+module type BUILTIN_MODULE = sig
+  val register :
+    llcontext ->
+    llmodule ->
+    llbuilder ->
+    ( string,
+      (llcontext ->
+      llmodule ->
+      llbuilder ->
+      string ->
+      llvalue list ->
+      lltype list ->
+      types list ->
+      types list ->
+      (expr -> llvalue) ->
+      (types -> lltype) ->
+      (expr -> types) ->
+      llvalue)
+      option )
+    Hashtbl.t ->
+    unit
+end

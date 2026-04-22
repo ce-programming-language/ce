@@ -166,7 +166,15 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
 
               position_at_end err_bb c_builder;
               let err_msg = build_extractvalue call_res 2 "err_msg" c_builder in
-              let printf_f = Builtin.get_printf ce_ctx ce_module in
+              let printf_ty =
+                var_arg_function_type (i32_type ce_ctx)
+                  [| pointer_type ce_ctx |]
+              in
+              let printf_f =
+                match Utils.lookup_function env "printf" ce_module with
+                | Some f -> f
+                | None -> declare_function "printf" printf_ty ce_module
+              in
               let fmt_str =
                 build_global_stringptr "Uncaught Error: %s\n" "err_fmt"
                   c_builder
