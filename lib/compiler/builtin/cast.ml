@@ -34,10 +34,10 @@ let register context the_module builder registry =
     in
 
     if is_str_to_int then begin
-      let the_func = block_parent (insertion_block builder) in
-      let ok_bb = append_block context "cast_ok" the_func in
-      let err_bb = append_block context "cast_err" the_func in
-      let merge_bb = append_block context "cast_merge" the_func in
+      let[@warning "-8"] [ ok_bb; err_bb; merge_bb ] =
+        Utils.create_blocks context builder
+          [ "cast_ok"; "cast_err"; "cast_merge" ]
+      in
       let strtoll_ty =
         function_type (i64_type context)
           [| pointer_type context; pointer_type context; i32_type context |]
@@ -110,10 +110,10 @@ let register context the_module builder registry =
         "cast_res" builder
     end
     else if is_str_to_float then begin
-      let the_func = block_parent (insertion_block builder) in
-      let ok_bb = append_block context "cast_ok" the_func in
-      let err_bb = append_block context "cast_err" the_func in
-      let merge_bb = append_block context "cast_merge" the_func in
+      let[@warning "-8"] [ ok_bb; err_bb; merge_bb ] =
+        Utils.create_blocks context builder
+          [ "cast_ok"; "cast_err"; "cast_merge" ]
+      in
 
       let strtod_ty =
         function_type (double_type context)

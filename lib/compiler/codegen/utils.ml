@@ -90,6 +90,50 @@ let mk_stmt (n : stmt_node) : stmt =
 let mk_error (loc : loc) msg =
   Error (Printf.sprintf "%s:%d:%d: %s" loc.file loc.line loc.col msg)
 
+let gen_panic env ctx module_ builder format_str arg_vals =
+  let printf_ty = var_arg_function_type (i32_type ctx) [| pointer_type ctx |] in
+  let printf_fn =
+    match lookup_function env "printf" module_ with
+    | Some f -> f
+    | None -> declare_function "printf" printf_ty module_
+  in
+  let err_fmt = build_global_stringptr format_str "panic_fmt" builder in
+  let all_args = Array.of_list (err_fmt :: arg_vals) in
+  ignore (build_call printf_ty printf_fn all_args "panic_printf" builder);
+
+  let exit_ty = function_type (void_type ctx) [| i32_type ctx |] in
+  let exit_fn =
+    match lookup_function env "exit" module_ with
+    | Some f -> f
+    | None -> declare_function "exit" exit_ty module_
+  in
+  ignore
+    (build_call exit_ty exit_fn [| const_int (i32_type ctx) 1 |] "" builder);
+  ignore (build_unreachable builder)
+
+let create_block ctx builder name =
+  let the_func = block_parent (insertion_block builder) in
+  append_block ctx name the_func
+
+let create_blocks ctx builder names = List.map (create_block ctx builder) names
+
+let gen_ok_result ctx builder res_ll_ty ok_val =
+  let s1 =
+    build_insertvalue (const_null res_ll_ty)
+      (const_int (i1_type ctx) 0)
+      0 "ok_flag" builder
+  in
+  if type_of ok_val = void_type ctx then s1
+  else build_insertvalue s1 ok_val 1 "ok_val" builder
+
+let gen_err_result ctx builder res_ll_ty err_msg =
+  let s1 =
+    build_insertvalue (const_null res_ll_ty)
+      (const_int (i1_type ctx) 1)
+      0 "err_flag" builder
+  in
+  build_insertvalue s1 err_msg 2 "err_msg" builder
+
 module Expr = struct
   let gen_binary_op op_type l_val r_val l_ty =
     let is_unsigned_ty = is_unsigned l_ty in

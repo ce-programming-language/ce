@@ -42,12 +42,12 @@ let register context the_module builder registry =
                "p" builder)
         in
 
-        let bb_int = append_block context "t_int" f in
-        let bb_float = append_block context "t_float" f in
-        let bb_bool = append_block context "t_bool" f in
-        let bb_str = append_block context "t_str" f in
-        let bb_char = append_block context "t_char" f in
-        let bb_end = append_block context "t_end" f in
+        let[@warning "-8"] [
+                         bb_int; bb_float; bb_bool; bb_str; bb_char; bb_end;
+                       ] =
+          Utils.create_blocks context builder
+            [ "t_int"; "t_float"; "t_bool"; "t_str"; "t_char"; "t_end" ]
+        in
 
         let sw = build_switch tag_val bb_end 5 builder in
         add_case sw (const_int (i64_type context) 1) bb_int;

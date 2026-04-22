@@ -98,31 +98,8 @@ module Make (Types : TYPES) : EXPR = struct
 
         position_at_end err_bb ce_builder;
         let err_msg = build_extractvalue raw_val 2 "err_msg" ce_builder in
-        let printf_ty =
-          var_arg_function_type (i32_type ce_ctx) [| pointer_type ce_ctx |]
-        in
-        let printf_fn =
-          match Utils.lookup_function env "printf" ce_module with
-          | Some f -> f
-          | None -> declare_function "printf" printf_ty ce_module
-        in
-        let err_fmt =
-          build_global_stringptr "Uncaught Error: %s\n" "err_fmt" ce_builder
-        in
-        ignore
-          (build_call printf_ty printf_fn [| err_fmt; err_msg |] "p" ce_builder);
-
-        let exit_ty = function_type (void_type ce_ctx) [| i32_type ce_ctx |] in
-        let exit_fn =
-          match Utils.lookup_function env "exit" ce_module with
-          | Some f -> f
-          | None -> declare_function "exit" exit_ty ce_module
-        in
-        ignore
-          (build_call exit_ty exit_fn
-             [| const_int (i32_type ce_ctx) 1 |]
-             "" ce_builder);
-        ignore (build_unreachable ce_builder);
+        Utils.gen_panic env ce_ctx ce_module ce_builder "Uncaught Error: %s\n"
+          [ err_msg ];
 
         position_at_end ok_bb ce_builder;
         let ok_val = build_extractvalue raw_val 1 "ok_val" ce_builder in
@@ -611,10 +588,11 @@ module Make (Types : TYPES) : EXPR = struct
         let phi_incoming = ref [] in
         let rec build_if c body rest_elifs else_b =
           let cond_val = codegen env compile_stmt_cb c in
-          let then_bb = append_block ce_ctx "then" the_function in
-          let next_bb = append_block ce_ctx "else_or_elif" the_function in
-
+          let[@warning "-8"] [ then_bb; next_bb ] =
+            Utils.create_blocks ce_ctx ce_builder [ "then"; "else_or_elif" ]
+          in
           ignore (build_cond_br cond_val then_bb next_bb ce_builder);
+
           position_at_end then_bb ce_builder;
 
           let then_val = cb_yield body in
@@ -656,10 +634,10 @@ module Make (Types : TYPES) : EXPR = struct
         let res_val = codegen env compile_stmt_cb expr in
         let is_err = build_extractvalue res_val 0 "is_err" ce_builder in
 
-        let the_func = block_parent (insertion_block ce_builder) in
-        let err_bb = append_block ce_ctx "catch_err" the_func in
-        let ok_bb = append_block ce_ctx "catch_ok" the_func in
-        let merge_bb = append_block ce_ctx "catch_merge" the_func in
+        let[@warning "-8"] [ err_bb; ok_bb; merge_bb ] =
+          Utils.create_blocks ce_ctx ce_builder
+            [ "catch_err"; "catch_ok"; "catch_merge" ]
+        in
 
         ignore (build_cond_br is_err err_bb ok_bb ce_builder);
 

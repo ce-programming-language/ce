@@ -153,8 +153,9 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
 
             if match ret_ty with TResult _ -> true | _ -> false then begin
               let is_err = build_extractvalue call_res 0 "is_err" c_builder in
-              let err_bb = append_block ce_ctx "err" c_main_f in
-              let ok_bb = append_block ce_ctx "ok" c_main_f in
+              let[@warning "-8"] [ err_bb; ok_bb ] =
+                Utils.create_blocks ce_ctx c_builder [ "err"; "ok" ]
+              in
 
               ignore (build_cond_br is_err err_bb ok_bb c_builder);
 
@@ -367,11 +368,10 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           in
           (match init with Some s -> ignore (codegen env s) | None -> ());
 
-          let the_function = block_parent (insertion_block ce_builder) in
-          let cond_bb = append_block ce_ctx "loop_cond" the_function in
-          let loop_bb = append_block ce_ctx "loop" the_function in
-          let mut_bb = append_block ce_ctx "loop_mut" the_function in
-          let after_bb = append_block ce_ctx "afterloop" the_function in
+          let[@warning "-8"] [ cond_bb; loop_bb; mut_bb; after_bb ] =
+            Utils.create_blocks ce_ctx ce_builder
+              [ "loop_cond"; "loop"; "loop_mut"; "afterloop" ]
+          in
 
           ignore (build_br cond_bb ce_builder);
 
@@ -408,10 +408,10 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         let iter_val = Expr.codegen env codegen iter_expr in
         let iter_ast_ty = infer_ast_type env iter_expr in
 
-        let the_function = block_parent (insertion_block ce_builder) in
-        let cond_bb = append_block ce_ctx "foreach_cond" the_function in
-        let loop_bb = append_block ce_ctx "foreach_loop" the_function in
-        let after_bb = append_block ce_ctx "afterforeach" the_function in
+        let[@warning "-8"] [ cond_bb; loop_bb; after_bb ] =
+          Utils.create_blocks ce_ctx ce_builder
+            [ "foreach_cond"; "foreach_loop"; "afterforeach" ]
+        in
 
         let is_array = match iter_ast_ty with TArray _ -> true | _ -> false in
 
@@ -571,13 +571,8 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
     | Raise e ->
         let err_msg = Expr.codegen env codegen e in
         let ret_ty = !(env.current_fn_ret_ty) in
-        let s1 =
-          build_insertvalue (const_null ret_ty)
-            (const_int (i1_type ce_ctx) 1)
-            0 "err_flag" ce_builder
-        in
-        let s2 = build_insertvalue s1 err_msg 2 "err_msg" ce_builder in
-        ignore (build_ret s2 ce_builder);
+        let res_struct = gen_err_result ce_ctx ce_builder ret_ty err_msg in
+        ignore (build_ret res_struct ce_builder);
         const_null (void_type ce_ctx)
     | DefInterface (name, sigs) ->
         Hashtbl.add env.interface_registry name sigs;
