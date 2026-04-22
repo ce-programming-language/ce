@@ -20,6 +20,7 @@ type analysis_result = {
 let analyses : (string, analysis_result) Hashtbl.t = Hashtbl.create 10
 
 let check_syntax src =
+  Ce_lexer.Lexer.reset_state ();
   let lexbuf = Lexing.from_string src in
   try
     let _ast = Ce_parser.Parser.prog Ce_lexer.Lexer.tokenize lexbuf in
@@ -124,6 +125,7 @@ let get_hover_docs word =
   | _ -> None
 
 let parse_ast src =
+  Ce_lexer.Lexer.reset_state ();
   let lexbuf = Lexing.from_string src in
   try Some (Ce_parser.Parser.prog Ce_lexer.Lexer.tokenize lexbuf)
   with _ -> None
@@ -147,23 +149,33 @@ let analyze_document uri src =
         else ""
       in
 
-      let add_def name loc kind =
-        let line = loc.line - 1 in
-        let col = loc.col in
-        let len = String.length name in
-        let start_pos = Position.create ~line ~character:col in
-        let end_pos = Position.create ~line ~character:(col + len) in
+      let add_def name (loc : Ce_parser.Ast.loc) kind =
+        let start_line = loc.line - 1 in
+        let start_col = loc.col in
+        let end_line = loc.end_line - 1 in
+        let end_col = loc.end_col in
+
+        let start_pos = Position.create ~line:start_line ~character:start_col in
+        let end_pos = Position.create ~line:end_line ~character:end_col in
         let range = Range.create ~start:start_pos ~end_:end_pos in
+
+        let selection_end_pos =
+          Position.create ~line:start_line
+            ~character:(start_col + String.length name)
+        in
+        let selection_range =
+          Range.create ~start:start_pos ~end_:selection_end_pos
+        in
 
         let lsp_loc = Location.create ~uri ~range in
         Hashtbl.replace definitions (uri_str, name) lsp_loc;
-        Hashtbl.replace signatures (uri_str, name) (get_line line);
+        Hashtbl.replace signatures (uri_str, name) (get_line start_line);
 
         let symbol =
-          DocumentSymbol.create ~name ~kind ~range ~selectionRange:range ()
+          DocumentSymbol.create ~name ~kind ~range
+            ~selectionRange:selection_range ()
         in
         symbols := symbol :: !symbols;
-
         let comp_kind =
           match kind with
           | SymbolKind.Function -> CompletionItemKind.Function
@@ -175,7 +187,7 @@ let analyze_document uri src =
         Hashtbl.replace completions name comp_kind
       in
 
-      let rec visit_stmt s =
+      let rec visit_stmt (s : Ce_parser.Ast.stmt) =
         match s.node with
         | DefLet (name, _, ty, expr_opt) -> (
             add_def name s.loc SymbolKind.Variable;
@@ -190,7 +202,7 @@ let analyze_document uri src =
                 | _ -> "any"
               in
               let line = s.loc.line - 1 in
-              let col = s.loc.col + String.length name in
+              let col = s.loc.col + 4 + String.length name in
               let pos = Position.create ~line ~character:col in
               let hint =
                 InlayHint.create ~position:pos
@@ -204,11 +216,13 @@ let analyze_document uri src =
         | DefFN (name, _, _, _, body) ->
             add_def name s.loc SymbolKind.Function;
             if name = "main" then begin
-              let line = s.loc.line - 1 in
+              let start_line = s.loc.line - 1 in
+              let end_line = s.loc.end_line - 1 in
               let range =
                 Range.create
-                  ~start:(Position.create ~line ~character:0)
-                  ~end_:(Position.create ~line ~character:7)
+                  ~start:(Position.create ~line:start_line ~character:s.loc.col)
+                  ~end_:
+                    (Position.create ~line:end_line ~character:s.loc.end_col)
               in
               let command =
                 Command.create ~title:"▶ Run Program" ~command:"ce.run"
@@ -243,7 +257,7 @@ let analyze_document uri src =
             visit_expr iter;
             List.iter visit_stmt stmts
         | _ -> ()
-      and visit_expr e =
+      and visit_expr (e : Ce_parser.Ast.expr) =
         match e.node with
         | Struct (_, _, fields) ->
             List.iter (fun (_, ex) -> visit_expr ex) fields

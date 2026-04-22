@@ -5,6 +5,9 @@
 
   let last_token_was_end_of_expr = ref false
   let nesting_level = ref 0
+  let reset_state () =
+    last_token_was_end_of_expr := false;
+    nesting_level := 0
 
   let expr_end tok = last_token_was_end_of_expr := true; tok
   let expr_cont tok = last_token_was_end_of_expr := false; tok

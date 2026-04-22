@@ -8,6 +8,7 @@ open Llvm_target
 let read file = In_channel.with_open_text file In_channel.input_all
 
 let parse filepath src =
+  Ce_lexer.Lexer.reset_state ();
   let lexbuf = Lexing.from_string src in
   Lexing.set_filename lexbuf filepath;
   try Parser.prog Lexer.tokenize lexbuf
