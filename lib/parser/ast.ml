@@ -34,6 +34,7 @@ type types =
   | TArray of int * types
   | TTuple of types list
   | TFn of types list * types
+  | TVariadic of types
 [@@deriving show]
 
 type expr = {

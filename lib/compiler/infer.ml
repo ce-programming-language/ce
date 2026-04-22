@@ -1,9 +1,9 @@
-open Ce_parser.Ast
-open State
 open Substitue
 open Utils
+open Ce_parser.Ast
+open State
 
-let rec infer_ast_type env (expr : expr) =
+let rec infer_ast_type (env : compiler_env) (expr : expr) =
   match !(expr.inferred_type) with
   | Some cached_ty -> cached_ty
   | None ->
@@ -113,16 +113,18 @@ let rec infer_ast_type env (expr : expr) =
                 let actual_ty = match ast_ty with TPointer t -> t | t -> t in
                 let s_name = ast_base_type_name actual_ty in
                 let mangled_name = s_name ^ "::" ^ method_name in
-                let _, ret_ty = Hashtbl.find env.function_types mangled_name in
+                let _, _, ret_ty =
+                  Hashtbl.find env.function_types mangled_name
+                in
                 ret_ty
               with Not_found -> (
                 try
-                  let _, ret_ty = Hashtbl.find env.function_types name in
+                  let _, _, ret_ty = Hashtbl.find env.function_types name in
                   ret_ty
                 with Not_found -> TUnknown)
             else
               try
-                let _, ret_ty = Hashtbl.find env.function_types name in
+                let _, _, ret_ty = Hashtbl.find env.function_types name in
                 ret_ty
               with Not_found -> TUnknown)
         | Tuple es -> TTuple (List.map (infer_ast_type env) es)

@@ -10,6 +10,7 @@ class mapper =
       | TResult ty -> TResult (self#map_type ty)
       | TTuple ts -> TTuple (List.map self#map_type ts)
       | TFn (args, ret) -> TFn (List.map self#map_type args, self#map_type ret)
+      | TVariadic ty -> TVariadic (self#map_type ty)
       | t -> t
 
     method map_expr (e : expr) : expr =

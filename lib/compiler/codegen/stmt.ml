@@ -100,7 +100,8 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
               (List.map (fun (p : param) -> Types.llvm_type_of env p.ty) params)
           in
           let ft = function_type (Types.llvm_type_of env ret_ty) param_types in
-          Hashtbl.add env.function_types actual_name (ft, ret_ty);
+          Hashtbl.add env.function_types actual_name
+            (ft, List.map (fun (p : param) -> p.ty) params, ret_ty);
 
           let f = declare_function actual_name ft ce_module in
           set_linkage Linkage.Internal f;
@@ -112,7 +113,11 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           Array.iteri
             (fun i a ->
               let n = (List.nth params i).param_name in
-              let p_ty = (List.nth params i).ty in
+              let p_ty =
+                match (List.nth params i).ty with
+                | TVariadic t -> TGenericInst ("slices.Slice", [ t ])
+                | t -> t
+              in
               let llvm_p_ty = Types.llvm_type_of env p_ty in
               let alloca = build_alloca llvm_p_ty n ce_builder in
               ignore (build_store a alloca ce_builder);
@@ -198,20 +203,29 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           Hashtbl.add env.struct_templates name (params, fields);
           const_null (void_type ce_ctx)
         end
-        else begin
-          let field_types =
-            Array.of_list
-              (List.map (fun f -> Types.llvm_type_of env f.ty) fields)
-          in
-          let struct_llty = named_struct_type ce_ctx name in
-          struct_set_body struct_llty field_types false;
+        else
+          begin if not (Hashtbl.mem env.struct_registry name) then begin
+            let struct_llty = named_struct_type ce_ctx name in
+            Hashtbl.add env.struct_registry name (struct_llty, []);
 
-          let field_map =
-            List.mapi (fun i f -> (f.field_name, i, f.is_mut, f.ty)) fields
-          in
-          Hashtbl.add env.struct_registry name (struct_llty, field_map);
-          const_null (void_type ce_ctx)
-        end
+            Queue.push s env.pending_instantiations;
+            const_null (void_type ce_ctx)
+          end
+          else begin
+            let struct_llty, _ = Hashtbl.find env.struct_registry name in
+            let field_types =
+              Array.of_list
+                (List.map (fun f -> Types.llvm_type_of env f.ty) fields)
+            in
+            struct_set_body struct_llty field_types false;
+
+            let field_map =
+              List.mapi (fun i f -> (f.field_name, i, f.is_mut, f.ty)) fields
+            in
+            Hashtbl.replace env.struct_registry name (struct_llty, field_map);
+            const_null (void_type ce_ctx)
+          end
+          end
     | Assign (name, expr) ->
         let val_ = Expr.codegen env codegen expr in
         let var_ptr, expected_ll_ty, is_u =
@@ -561,10 +575,30 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
               let self_ty = if is_ptr then TPointer base_ty else base_ty in
               let self_param = { param_name = self_id; ty = self_ty } in
               let all_params = self_param :: m_params in
-              ignore
-                (codegen env
-                   (Utils.mk_stmt
-                      (DefFN (mangled_name, [], all_params, ret_ty, body)))))
+              let param_types =
+                Array.of_list
+                  (List.map
+                     (fun (p : param) -> Types.llvm_type_of env p.ty)
+                     all_params)
+              in
+              let ft =
+                function_type (Types.llvm_type_of env ret_ty) param_types
+              in
+              Hashtbl.replace env.function_types mangled_name
+                (ft, List.map (fun (p : param) -> p.ty) all_params, ret_ty);
+              let _ =
+                match Llvm.lookup_function mangled_name ce_module with
+                | Some existing -> existing
+                | None ->
+                    let new_f = declare_function mangled_name ft ce_module in
+                    set_linkage Linkage.Internal new_f;
+                    new_f
+              in
+
+              Queue.push
+                (Utils.mk_stmt
+                   (DefFN (mangled_name, [], all_params, ret_ty, body)))
+                env.pending_instantiations)
             methods;
           const_null (void_type ce_ctx)
         end
@@ -586,7 +620,8 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
             (List.map (fun (p : param) -> Types.llvm_type_of env p.ty) params)
         in
         let ft = function_type (Types.llvm_type_of env ret_ty) param_types in
-        Hashtbl.add env.function_types name (ft, ret_ty);
+        Hashtbl.add env.function_types name
+          (ft, List.map (fun (p : param) -> p.ty) params, ret_ty);
 
         let _ =
           match Llvm.lookup_function c_name ce_module with

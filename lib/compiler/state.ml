@@ -6,7 +6,7 @@ exception Error of string
 type compiler_env = {
   type_aliases : (string, types) Hashtbl.t;
   named_values : (string, llvalue * types * bool) Hashtbl.t;
-  function_types : (string, lltype * types) Hashtbl.t;
+  function_types : (string, lltype * types list * types) Hashtbl.t;
   struct_templates :
     (string, (string * types) list * struct_field list) Hashtbl.t;
   impl_templates :

@@ -62,9 +62,15 @@ module Make () : TYPES = struct
             let params, fields =
               try Hashtbl.find env.struct_templates name
               with Not_found ->
-                raise
-                  (Error
-                     ("Cannot find generic struct template for '" ^ name ^ "'"))
+                if name = "slices.Slice" then
+                  raise
+                    (Error
+                       "Missing import: Variadic parameters (...T) require \
+                        `import slices` at the top of your file.")
+                else
+                  raise
+                    (Error
+                       ("Cannot find generic struct template for '" ^ name ^ "'"))
             in
             let type_map =
               List.map2
@@ -134,7 +140,9 @@ module Make () : TYPES = struct
                         function_type (llvm_type_of env sub_ret_ty) param_types
                       in
                       Hashtbl.replace env.function_types mangled_method
-                        (ft, sub_ret_ty);
+                        ( ft,
+                          List.map (fun (p : param) -> p.ty) all_sub_params,
+                          sub_ret_ty );
                       let _ =
                         match Llvm.lookup_function mangled_method ce_module with
                         | Some existing -> existing
@@ -162,6 +170,7 @@ module Make () : TYPES = struct
     | TTuple ts ->
         struct_type ce_ctx (Array.of_list (List.map (llvm_type_of env) ts))
     | TFn _ -> struct_type ce_ctx [| pointer_type ce_ctx; pointer_type ce_ctx |]
+    | TVariadic ty -> llvm_type_of env (TGenericInst ("slices.Slice", [ ty ]))
 
   and instantiate_generic_fn env name targs =
     let mangled_name =
@@ -191,7 +200,9 @@ module Make () : TYPES = struct
               (List.map (fun (p : param) -> llvm_type_of env p.ty) sub_params)
           in
           let ft = function_type (llvm_type_of env sub_ret_ty) param_types in
-          Hashtbl.replace env.function_types mangled_name (ft, sub_ret_ty);
+          Hashtbl.replace env.function_types mangled_name
+            (ft, List.map (fun (p : param) -> p.ty) sub_params, sub_ret_ty);
+
           let _ =
             match Llvm.lookup_function mangled_name ce_module with
             | Some existing -> existing

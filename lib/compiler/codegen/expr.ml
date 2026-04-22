@@ -169,6 +169,98 @@ module Make (Types : TYPES) : EXPR = struct
         else raw_val
 
   and codegen env compile_stmt_cb (e : expr) =
+    let process_args e_loc expected_tys param_ast_tys args offset_ll n_reg_args
+        =
+      let is_variadic, var_ty =
+        if List.length param_ast_tys > 0 then
+          match List.nth param_ast_tys (List.length param_ast_tys - 1) with
+          | TVariadic t -> (true, t)
+          | _ -> (false, TUnknown)
+        else (false, TUnknown)
+      in
+      if is_variadic then
+        let reg_args = List.filteri (fun i _ -> i < n_reg_args) args in
+        let var_args = List.filteri (fun i _ -> i >= n_reg_args) args in
+
+        let reg_vals =
+          List.mapi
+            (fun i arg ->
+              coerce_value env e_loc
+                expected_tys.(i + offset_ll)
+                (codegen env compile_stmt_cb arg)
+                false false)
+            reg_args
+        in
+
+        let var_len = List.length var_args in
+        let ll_elem_ty = Types.llvm_type_of env var_ty in
+
+        let array_ptr =
+          if var_len > 0 then begin
+            let ptr_ty = pointer_type ce_ctx in
+            let gc_malloc_ty = function_type ptr_ty [| i64_type ce_ctx |] in
+            let gc_malloc_fn =
+              match lookup_function env "GC_malloc" ce_module with
+              | Some f -> f
+              | None -> declare_function "GC_malloc" gc_malloc_ty ce_module
+            in
+            let size_val = size_of ll_elem_ty in
+            let total_size =
+              build_mul
+                (const_int (i64_type ce_ctx) var_len)
+                size_val "alloc_size" ce_builder
+            in
+            let ptr_raw =
+              build_call gc_malloc_ty gc_malloc_fn [| total_size |]
+                "vararg_alloc" ce_builder
+            in
+            let ptr = build_bitcast ptr_raw ptr_ty "vararg_ptr" ce_builder in
+
+            List.iteri
+              (fun i arg_expr ->
+                let arg_val = codegen env compile_stmt_cb arg_expr in
+                let coerced =
+                  coerce_value env e_loc ll_elem_ty arg_val false false
+                in
+                let gep =
+                  build_in_bounds_gep ll_elem_ty ptr
+                    [| const_int (i32_type ce_ctx) i |]
+                    "vararg_gep" ce_builder
+                in
+                ignore (build_store coerced gep ce_builder))
+              var_args;
+            ptr
+          end
+          else begin
+            const_null (pointer_type ce_ctx)
+          end
+        in
+
+        let slice_ast_ty = TGenericInst ("slices.Slice", [ var_ty ]) in
+        let slice_ll_ty = Types.llvm_type_of env slice_ast_ty in
+        let s0 = const_null slice_ll_ty in
+        let s1 = build_insertvalue s0 array_ptr 0 "slice_ptr" ce_builder in
+        let s2 =
+          build_insertvalue s1
+            (const_int (i32_type ce_ctx) var_len)
+            1 "slice_len" ce_builder
+        in
+        let slice_val =
+          build_insertvalue s2
+            (const_int (i32_type ce_ctx) var_len)
+            2 "slice_cap" ce_builder
+        in
+
+        reg_vals @ [ slice_val ]
+      else
+        List.mapi
+          (fun i arg ->
+            coerce_value env e_loc
+              expected_tys.(i + offset_ll)
+              (codegen env compile_stmt_cb arg)
+              false false)
+          args
+    in
     match e.node with
     | Void -> const_null (void_type ce_ctx)
     | Nil -> const_null (pointer_type ce_ctx)
@@ -327,15 +419,13 @@ module Make (Types : TYPES) : EXPR = struct
             in
             match lookup_function env name ce_module with
             | Some callee ->
-                let ft, _ = Hashtbl.find env.function_types name in
+                let ft, param_ast_tys, _ =
+                  Hashtbl.find env.function_types name
+                in
                 let expected_tys = param_types ft in
                 let arg_vals =
-                  List.mapi
-                    (fun i arg ->
-                      (coerce_value env e.loc expected_tys.(i)
-                         (codegen env compile_stmt_cb arg))
-                        false false)
-                    args
+                  process_args e.loc expected_tys param_ast_tys args 0
+                    (List.length param_ast_tys - 1)
                 in
                 let args_val = Array.of_list arg_vals in
                 let call_name =
@@ -345,15 +435,13 @@ module Make (Types : TYPES) : EXPR = struct
             | None -> (
                 match lookup_function env target_name ce_module with
                 | Some callee ->
-                    let ft, _ = Hashtbl.find env.function_types target_name in
+                    let ft, param_ast_tys, _ =
+                      Hashtbl.find env.function_types target_name
+                    in
                     let expected_tys = param_types ft in
                     let arg_vals =
-                      List.mapi
-                        (fun i arg ->
-                          (coerce_value env e.loc expected_tys.(i)
-                             (codegen env compile_stmt_cb arg))
-                            false false)
-                        args
+                      process_args e.loc expected_tys param_ast_tys args 0
+                        (List.length param_ast_tys - 1)
                     in
                     let args_val = Array.of_list arg_vals in
                     let call_name =
@@ -371,7 +459,6 @@ module Make (Types : TYPES) : EXPR = struct
                         | _ -> false
                       with _ -> false
                     in
-
                     if is_fn_var then
                       let fn_val =
                         codegen env compile_stmt_cb (Utils.mk_expr @@ Let name)
@@ -383,7 +470,8 @@ module Make (Types : TYPES) : EXPR = struct
                       | TFn (param_tys, ret_ty) ->
                           let expected_tys =
                             Array.of_list
-                              (List.map (Types.llvm_type_of env) param_tys)
+                              (pointer_type ce_ctx
+                              :: List.map (Types.llvm_type_of env) param_tys)
                           in
                           let ft =
                             function_type
@@ -397,12 +485,8 @@ module Make (Types : TYPES) : EXPR = struct
                             build_extractvalue fn_val 1 "env_ptr" ce_builder
                           in
                           let arg_vals =
-                            List.mapi
-                              (fun i arg ->
-                                (coerce_value env e.loc expected_tys.(i)
-                                   (codegen env compile_stmt_cb arg))
-                                  false false)
-                              args
+                            process_args e.loc expected_tys param_tys args 1
+                              (List.length param_tys - 1)
                           in
                           let all_args = Array.of_list (env_ptr :: arg_vals) in
                           let call_name =
@@ -435,17 +519,13 @@ module Make (Types : TYPES) : EXPR = struct
                                    ("Unknown method '" ^ method_name
                                   ^ "' on struct '" ^ base_path ^ "'"))
                         in
-                        let ft, _ =
+                        let ft, param_ast_tys, _ =
                           Hashtbl.find env.function_types mangled_name
                         in
                         let expected_tys = param_types ft in
                         let arg_vals =
-                          List.mapi
-                            (fun i arg ->
-                              (coerce_value env e.loc expected_tys.(i)
-                                 (codegen env compile_stmt_cb arg))
-                                false false)
-                            args
+                          process_args e.loc expected_tys param_ast_tys args 0
+                            (List.length param_ast_tys - 1)
                         in
                         let args_val = Array.of_list arg_vals in
                         let call_name =
@@ -464,20 +544,17 @@ module Make (Types : TYPES) : EXPR = struct
                                  ("Unknown function or method: '" ^ name ^ "'"))
                         in
                         let self_ty_llvm = type_of self_val in
-
                         let actual_struct_ty, is_self_ptr =
                           if classify_type self_ty_llvm = TypeKind.Pointer then
                             (element_type self_ty_llvm, true)
                           else (self_ty_llvm, false)
                         in
-
                         let self_ast_ty =
                           infer_ast_type env (Utils.mk_expr @@ Let base_path)
                         in
                         let actual_ast_ty =
                           match self_ast_ty with TPointer t -> t | t -> t
                         in
-
                         let clean_name =
                           try ast_base_type_name actual_ast_ty
                           with Not_found -> (
@@ -493,7 +570,6 @@ module Make (Types : TYPES) : EXPR = struct
                                      ("Cannot call method '" ^ method_name
                                     ^ "' on a non-struct type")))
                         in
-
                         let mangled_name = clean_name ^ "::" ^ method_name in
                         let callee =
                           match lookup_function env mangled_name ce_module with
@@ -504,12 +580,12 @@ module Make (Types : TYPES) : EXPR = struct
                                    ("Unknown method '" ^ method_name
                                   ^ "' on type '" ^ clean_name ^ "'"))
                         in
-                        let ft, _ =
+                        let ft, param_ast_tys, _ =
                           Hashtbl.find env.function_types mangled_name
                         in
                         let expected_tys = param_types ft in
-
                         let expected_self_ty = expected_tys.(0) in
+
                         let coerced_self =
                           if classify_type expected_self_ty = TypeKind.Pointer
                           then
@@ -551,14 +627,10 @@ module Make (Types : TYPES) : EXPR = struct
                             coerce_value env e.loc expected_self_ty self_val
                               false false
                         in
+
                         let arg_vals =
-                          List.mapi
-                            (fun i arg ->
-                              (coerce_value env e.loc
-                                 expected_tys.(i + 1)
-                                 (codegen env compile_stmt_cb arg))
-                                false false)
-                            args
+                          process_args e.loc expected_tys param_ast_tys args 1
+                            (List.length param_ast_tys - 2)
                         in
                         let all_args =
                           Array.of_list (coerced_self :: arg_vals)
@@ -713,7 +785,7 @@ module Make (Types : TYPES) : EXPR = struct
           | { node = Let name }
             when Hashtbl.mem env.function_types name
                  && not (Hashtbl.mem env.named_values name) ->
-              let ft, _ = Hashtbl.find env.function_types name in
+              let ft, _, _ = Hashtbl.find env.function_types name in
               let call_name =
                 if expected_ll_ty = void_type ce_ctx then ""
                 else "catch_call_tmp"
@@ -831,7 +903,8 @@ module Make (Types : TYPES) : EXPR = struct
             )
         in
         let ft = function_type (Types.llvm_type_of env ret_ty) param_types in
-        Hashtbl.add env.function_types actual_name (ft, ret_ty);
+        Hashtbl.replace env.function_types actual_name
+          (ft, List.map (fun (p : param) -> p.ty) params, ret_ty);
         let f = declare_function actual_name ft ce_module in
         set_linkage Linkage.Internal f;
         let bb = append_block ce_ctx "entry" f in

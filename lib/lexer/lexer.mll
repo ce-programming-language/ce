@@ -105,6 +105,7 @@ rule tokenize = parse
   | "&"                { expr_cont AMP }
   | ";"                { expr_cont SEMICOLON }
   | "!"                { expr_cont BANG }
+  | "..."              { expr_cont ELLIPSIS }
 
   | "//" [^ '\n']*     { tokenize lexbuf }
   | "/*"               { comment 0 lexbuf }

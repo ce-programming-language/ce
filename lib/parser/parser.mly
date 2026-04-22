@@ -79,7 +79,7 @@
 %token <string> STRING IDENT
 %token <char>   CHAR
 %token          PLUS MINUS STAR SLASH MOD EQEQ LT LTE GT GTE AND OR BANG
-%token          LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET COMMA EQUALS DOT AMP SEMICOLON
+%token          LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET COMMA EQUALS DOT AMP SEMICOLON ELLIPSIS
 %token          EOF RETURN IMPORT BREAK NEWLINE TYPE IMPL RAISE CATCH STRUCT TRAIT EXTERN
 %token          TYPE_BOOL TYPE_VOID TYPE_STRING TYPE_CHAR
 %token          TYPE_INT TYPE_I8 TYPE_I16 TYPE_I32 TYPE_I64 TYPE_I128
@@ -222,6 +222,7 @@ array:
 
 param:
   | name = IDENT ty = types { { param_name = name; ty = ty } }
+  | name = IDENT ELLIPSIS ty = types { { param_name = name; ty = TVariadic ty } }
 
 def_fn:
   | FN name = IDENT tparams = generic_params_opt LPAREN params = separated_list(COMMA, param) RPAREN ty = types body = block
