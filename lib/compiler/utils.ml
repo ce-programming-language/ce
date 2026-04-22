@@ -80,3 +80,9 @@ and lookup_function env name m =
     try Hashtbl.find env.extern_aliases name with Not_found -> name
   in
   Llvm.lookup_function real_name m
+
+let mk_expr (n : expr_node) : expr =
+  { loc = { line = 0; col = 0; file = "<builtin>" }; node = n }
+
+let mk_stmt (n : stmt_node) : stmt =
+  { loc = { line = 0; col = 0; file = "<builtin>" }; node = n }

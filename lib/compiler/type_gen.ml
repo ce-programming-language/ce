@@ -86,7 +86,8 @@ module Make (Stmt : STMT) : TYPES = struct
 
             ignore
               (Stmt.codegen_stmt env
-                 (DefStruct (mangled_name, [], specialized_fields)));
+                 (Utils.mk_stmt
+                    (DefStruct (mangled_name, [], specialized_fields))));
 
             (match Hashtbl.find_opt env.impl_templates name with
             | Some (_, methods) ->
@@ -113,7 +114,8 @@ module Make (Stmt : STMT) : TYPES = struct
                 in
                 ignore
                   (Stmt.codegen_stmt env
-                     (Impl (mangled_name, [], specialized_methods)))
+                     (Utils.mk_stmt
+                        (Impl (mangled_name, [], specialized_methods))))
             | None -> ());
 
             (match saved_bb with
@@ -154,7 +156,8 @@ module Make (Stmt : STMT) : TYPES = struct
 
           ignore
             (Stmt.codegen_stmt env
-               (DefFN (mangled_name, [], sub_params, sub_ret_ty, sub_body)));
+               (Utils.mk_stmt
+                  (DefFN (mangled_name, [], sub_params, sub_ret_ty, sub_body))));
           (match saved_bb with
           | Some bb -> position_at_end bb ce_builder
           | None -> ());

@@ -189,7 +189,8 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
         end
         else raw_val
 
-  and codegen_expr env = function
+  and codegen_expr env (e : expr) =
+    match e.node with
     | Void -> const_null (void_type ce_ctx)
     | Nil -> const_null (pointer_type ce_ctx)
     | Int n -> const_int (i32_type ce_ctx) n
@@ -374,15 +375,21 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                 | None ->
                     let is_fn_var =
                       try
-                        match infer_ast_type env (Let name) with
+                        match
+                          infer_ast_type env (Utils.mk_expr @@ Let name)
+                        with
                         | TFn _ -> true
                         | _ -> false
                       with _ -> false
                     in
 
                     if is_fn_var then
-                      let fn_val = codegen_expr env (Let name) in
-                      let fn_ast_ty = Infer.infer_ast_type env (Let name) in
+                      let fn_val =
+                        codegen_expr env (Utils.mk_expr @@ Let name)
+                      in
+                      let fn_ast_ty =
+                        Infer.infer_ast_type env (Utils.mk_expr @@ Let name)
+                      in
                       match fn_ast_ty with
                       | TFn (param_tys, ret_ty) ->
                           let expected_tys =
@@ -459,7 +466,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                         build_call ft callee args_val call_name ce_builder
                       else
                         let self_val =
-                          try codegen_expr env (Let base_path)
+                          try codegen_expr env (Utils.mk_expr @@ Let base_path)
                           with Error _ ->
                             raise
                               (Error
@@ -473,7 +480,9 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                           else (self_ty_llvm, false)
                         in
 
-                        let self_ast_ty = infer_ast_type env (Let base_path) in
+                        let self_ast_ty =
+                          infer_ast_type env (Utils.mk_expr @@ Let base_path)
+                        in
                         let actual_ast_ty =
                           match self_ast_ty with TPointer t -> t | t -> t
                         in
@@ -575,7 +584,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
         let cb_yield stmts =
           let rec aux = function
             | [] -> const_null (void_type ce_ctx)
-            | [ Expr e ] -> codegen_expr env e
+            | [ { node = Expr e; _ } ] -> codegen_expr env e
             | s :: rest ->
                 ignore (Stmt.codegen_stmt env s);
                 aux rest
@@ -653,7 +662,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
 
         List.iter
           (function
-            | Return e -> catch_val := codegen_expr env e
+            | { node = Return e } -> catch_val := codegen_expr env e
             | s -> ignore (Stmt.codegen_stmt env s))
           body;
 
@@ -707,7 +716,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
 
         let catch_val_raw =
           match handler with
-          | Let name
+          | { node = Let name }
             when Hashtbl.mem env.function_types name
                  && not (Hashtbl.mem env.named_values name) ->
               let ft, _ = Hashtbl.find env.function_types name in
@@ -904,7 +913,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
             0 "closure0" ce_builder
         in
         build_insertvalue closure_val0 env_ptr 1 "closure" ce_builder
-    | Ref (Let name) -> (
+    | Ref { node = Let name } -> (
         if String.contains name '.' then
           let parts = String.split_on_char '.' name in
           let base_name = List.hd parts in

@@ -123,9 +123,9 @@ let get name =
         let target_ll_ty = llvm_type_of target_ast_ty in
         let result_ast_ty = TResult target_ast_ty in
         let result_ll_ty = llvm_type_of result_ast_ty in
-        let self_val = codegen_expr (Let base_path) in
+        let self_val = codegen_expr (Utils.mk_expr (Let base_path)) in
         let self_ll_ty = type_of self_val in
-        let self_ast_ty = infer_ast_type (Let base_path) in
+        let self_ast_ty = infer_ast_type (Utils.mk_expr (Let base_path)) in
 
         let is_str_to_int =
           self_ast_ty = TString

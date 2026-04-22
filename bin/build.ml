@@ -58,33 +58,41 @@ class namespacer prefix decls =
       | _ -> super#map_type t
 
     method! map_expr e =
-      match e with
+      match e.node with
       | Call (name, targs, args) ->
-          Call
-            ( self#apply_namespace name,
-              List.map self#map_type targs,
-              List.map self#map_expr args )
+          Utils.mk_expr
+          @@ Call
+               ( self#apply_namespace name,
+                 List.map self#map_type targs,
+                 List.map self#map_expr args )
       | Struct (name, targs, fields) ->
-          Struct
-            ( self#apply_namespace name,
-              List.map self#map_type targs,
-              List.map (fun (n, expr) -> (n, self#map_expr expr)) fields )
+          Utils.mk_expr
+          @@ Struct
+               ( self#apply_namespace name,
+                 List.map self#map_type targs,
+                 List.map (fun (n, expr) -> (n, self#map_expr expr)) fields )
       | _ -> super#map_expr e
 
     method! map_stmt s =
-      match s with
+      match s.node with
       | DefFN (name, tparams, params, ty, body) ->
           super#map_stmt
-            (DefFN (self#apply_namespace name, tparams, params, ty, body))
+            (Utils.mk_stmt
+            @@ DefFN (self#apply_namespace name, tparams, params, ty, body))
       | DefStruct (name, params, fields) ->
-          super#map_stmt (DefStruct (self#apply_namespace name, params, fields))
+          super#map_stmt
+            (Utils.mk_stmt
+            @@ DefStruct (self#apply_namespace name, params, fields))
       | DefInterface (name, sigs) ->
-          super#map_stmt (DefInterface (self#apply_namespace name, sigs))
+          super#map_stmt
+            (Utils.mk_stmt @@ DefInterface (self#apply_namespace name, sigs))
       | ExternFN (alias, name, params, ret_ty) ->
           super#map_stmt
-            (ExternFN (alias, self#apply_namespace name, params, ret_ty))
+            (Utils.mk_stmt
+            @@ ExternFN (alias, self#apply_namespace name, params, ret_ty))
       | Impl (name, params, methods) ->
-          super#map_stmt (Impl (self#apply_namespace name, params, methods))
+          super#map_stmt
+            (Utils.mk_stmt @@ Impl (self#apply_namespace name, params, methods))
       | _ -> super#map_stmt s
   end
 
@@ -99,7 +107,7 @@ let rec process_file_inner visited filepath namespace_prefix =
     let decls =
       List.fold_left
         (fun acc stmt ->
-          match stmt with
+          match stmt.node with
           | DefFN (name, _, _, _, _) -> name :: acc
           | DefStruct (name, _, _) -> name :: acc
           | DefInterface (name, _) -> name :: acc
@@ -117,7 +125,7 @@ let rec process_file_inner visited filepath namespace_prefix =
     let imports_ast =
       List.fold_left
         (fun acc stmt ->
-          match stmt with
+          match stmt.node with
           | Import path_list ->
               let import_path = resolve_import path_list in
               let module_name = List.hd (List.rev path_list) in

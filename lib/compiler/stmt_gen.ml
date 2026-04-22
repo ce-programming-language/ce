@@ -15,7 +15,8 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           ignore (codegen_stmt env s))
       stmts
 
-  and codegen_stmt (env : State.compiler_env) = function
+  and codegen_stmt (env : State.compiler_env) (s : stmt) =
+    match s.node with
     | Expr e ->
         let v = Expr.codegen_expr env e in
         let ty = type_of v in
@@ -35,11 +36,11 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
     | DefLet (name, ismut, ty, expr_opt) ->
         let raw_val_opt, inferred_ty =
           match expr_opt with
-          | Some expr ->
-              let raw_val = Expr.codegen_expr env expr in
+          | Some e ->
+              let raw_val = Expr.codegen_expr env e in
               let deduced_ty =
                 if ty = TUnknown then
-                  let inferred = infer_ast_type env expr in
+                  let inferred = infer_ast_type env e in
                   if inferred = TUnknown then
                     raise
                       (Error
@@ -348,10 +349,13 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           | _ -> false
         in
         if is_foreach then
-          codegen_stmt env (ForEach (None, None, Option.get cond, stmts))
+          codegen_stmt env
+            (Utils.mk_stmt (ForEach (None, None, Option.get cond, stmts)))
         else begin
           let init_var_name =
-            match init with Some (DefLet (n, _, _, _)) -> Some n | _ -> None
+            match init with
+            | Some { node = DefLet (n, _, _, _) } -> Some n
+            | _ -> None
           in
           (match init with Some s -> ignore (codegen_stmt env s) | None -> ());
 
@@ -570,7 +574,8 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
               let all_params = self_param :: m_params in
               ignore
                 (codegen_stmt env
-                   (DefFN (mangled_name, [], all_params, ret_ty, body))))
+                   (Utils.mk_stmt
+                      (DefFN (mangled_name, [], all_params, ret_ty, body)))))
             methods;
           const_null (void_type ce_ctx)
         end

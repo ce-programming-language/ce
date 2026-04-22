@@ -3,7 +3,8 @@ open State
 open Substitue
 open Utils
 
-let rec infer_ast_type env = function
+let rec infer_ast_type env (expr : expr) =
+  match expr.node with
   | Int _ -> TInt (I32, Signed)
   | Float _ -> TFloat F64
   | Bool _ -> TBool
