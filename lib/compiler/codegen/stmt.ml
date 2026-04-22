@@ -533,27 +533,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         const_null (void_type ce_ctx)
     | Return e ->
         let v = Expr.codegen env codegen e in
-        if !(env.current_fn_is_res) then begin
-          let ret_ty = !(env.current_fn_ret_ty) in
-          let s1 =
-            build_insertvalue (const_null ret_ty)
-              (const_int (i1_type ce_ctx) 0)
-              0 "ok_flag" ce_builder
-          in
-          let s2 =
-            if type_of v = void_type ce_ctx then s1
-            else build_insertvalue s1 v 1 "ok_val" ce_builder
-          in
-          ignore (build_ret s2 ce_builder);
-          const_null (void_type ce_ctx)
-        end
-        else begin
-          if type_of v = void_type ce_ctx then
-            ignore (build_ret_void ce_builder)
-          else ignore (build_ret v ce_builder);
-
-          const_null (void_type ce_ctx)
-        end
+        Utils.Stmt.gen_return env ce_builder ce_ctx v
     | Import _ -> const_null (void_type ce_ctx)
     | Impl (name, params, methods) ->
         if List.length params > 0 then begin
