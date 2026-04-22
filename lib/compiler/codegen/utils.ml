@@ -81,11 +81,27 @@ and lookup_function env name m =
   in
   Llvm.lookup_function real_name m
 
+let next_builtin_id = ref (-1)
+
+let get_builtin_id () =
+  let id = !next_builtin_id in
+  decr next_builtin_id;
+  id
+
 let mk_expr (n : expr_node) : expr =
-  { loc = { line = 0; col = 0; file = "<builtin>" }; node = n }
+  {
+    id = get_builtin_id ();
+    loc = { line = 0; col = 0; file = "<builtin>" };
+    node = n;
+    inferred_type = ref None;
+  }
 
 let mk_stmt (n : stmt_node) : stmt =
-  { loc = { line = 0; col = 0; file = "<builtin>" }; node = n }
+  {
+    id = get_builtin_id ();
+    loc = { line = 0; col = 0; file = "<builtin>" };
+    node = n;
+  }
 
 let mk_error (loc : loc) msg =
   Error (Printf.sprintf "%s:%d:%d: %s" loc.file loc.line loc.col msg)

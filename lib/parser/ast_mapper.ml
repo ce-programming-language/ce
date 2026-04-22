@@ -66,7 +66,7 @@ class mapper =
             CatchExpr (self#map_expr expr, self#map_expr handler)
         | e -> e
       in
-      { e with node = mapped }
+      { e with node = mapped; inferred_type = ref None }
 
     method map_stmt (s : stmt) : stmt =
       let mapped =

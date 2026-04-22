@@ -1,13 +1,19 @@
 %{
   open Ast
 
+  let next_ast_id = ref 0
+  let get_id () =
+    let id = !next_ast_id in
+    incr next_ast_id;
+    id
+
   let make_loc (pos : Lexing.position) =
     { line = pos.pos_lnum;
       col = pos.pos_cnum - pos.pos_bol;
       file = pos.pos_fname }
 
-  let mk_expr pos (node: expr_node): expr = { loc = make_loc pos; node }
-  let mk_stmt pos (node: stmt_node): stmt = { loc = make_loc pos; node }
+  let mk_expr pos (node: expr_node): expr = {id = get_id (); loc = make_loc pos; inferred_type = ref None; node }
+  let mk_stmt pos (node: stmt_node): stmt = {id = get_id (); loc = make_loc pos; node }
 
   let rec attach_generic_call (e: expr) targs args =
     let attached = match e.node with

@@ -28,7 +28,13 @@ type types =
   | TFn of types list * types
 [@@deriving show]
 
-type expr = { loc : loc; node : expr_node } [@@deriving show]
+type expr = {
+  id : int;
+  loc : loc;
+  node : expr_node;
+  inferred_type : types option ref; [@opaque]
+}
+[@@deriving show]
 
 and expr_node =
   | Void
@@ -69,7 +75,7 @@ and expr_node =
 and param = { param_name : string; ty : types }
 and struct_field = { field_name : string; ty : types; is_mut : bool }
 and fn_signature = { fn_name : string; params : param list; ret_ty : types }
-and stmt = { loc : loc; node : stmt_node } [@@deriving show]
+and stmt = { id : int; loc : loc; node : stmt_node } [@@deriving show]
 
 and stmt_node =
   | Expr of expr
