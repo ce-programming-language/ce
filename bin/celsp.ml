@@ -1,10 +1,23 @@
 open Cmdliner
 open Lsp.Types
 open Linol_lwt
+open Ce_parser.Ast
 
 let log msg = Printf.eprintf "[ce-lsp] %s\n%!" msg
 let documents : (string, string) Hashtbl.t = Hashtbl.create 10
 let signatures : (string * string, string) Hashtbl.t = Hashtbl.create 50
+
+let definitions : (string * string, Linol_lsp.Lsp.Types.Location.t) Hashtbl.t =
+  Hashtbl.create 50
+
+type analysis_result = {
+  symbols : DocumentSymbol.t list;
+  hints : InlayHint.t list;
+  lenses : CodeLens.t list;
+  completions : (string, CompletionItemKind.t) Hashtbl.t;
+}
+
+let analyses : (string, analysis_result) Hashtbl.t = Hashtbl.create 10
 
 let check_syntax src =
   let lexbuf = Lexing.from_string src in
@@ -110,264 +123,201 @@ let get_hover_docs word =
       Some ("```ce\n" ^ word ^ "\n```\n\nBuilt-in primitive type.")
   | _ -> None
 
-let get_dynamic_completions src =
+let parse_ast src =
   let lexbuf = Lexing.from_string src in
-  let symbols = Hashtbl.create 50 in
+  try Some (Ce_parser.Parser.prog Ce_lexer.Lexer.tokenize lexbuf)
+  with _ -> None
 
-  let rec loop () =
-    try
-      match Ce_lexer.Lexer.tokenize lexbuf with
-      | Ce_parser.Parser.EOF -> ()
-      | Ce_parser.Parser.LET ->
-          (match Ce_lexer.Lexer.tokenize lexbuf with
-          | Ce_parser.Parser.MUT -> (
-              match Ce_lexer.Lexer.tokenize lexbuf with
-              | Ce_parser.Parser.IDENT name ->
-                  Hashtbl.replace symbols name CompletionItemKind.Variable
-              | _ -> ())
-          | Ce_parser.Parser.IDENT name ->
-              Hashtbl.replace symbols name CompletionItemKind.Variable
-          | _ -> ());
-          loop ()
-      | Ce_parser.Parser.FN ->
-          (match Ce_lexer.Lexer.tokenize lexbuf with
-          | Ce_parser.Parser.IDENT name ->
-              Hashtbl.replace symbols name CompletionItemKind.Function
-          | _ -> ());
-          loop ()
-      | Ce_parser.Parser.STRUCT ->
-          (match Ce_lexer.Lexer.tokenize lexbuf with
-          | Ce_parser.Parser.IDENT name ->
-              Hashtbl.replace symbols name CompletionItemKind.Struct
-          | _ -> ());
-          loop ()
-      | Ce_parser.Parser.TRAIT ->
-          (match Ce_lexer.Lexer.tokenize lexbuf with
-          | Ce_parser.Parser.IDENT name ->
-              Hashtbl.replace symbols name CompletionItemKind.Interface
-          | _ -> ());
-          loop ()
-      | _ -> loop ()
-    with _ -> ()
-  in
-
-  loop ();
-
-  Hashtbl.fold
-    (fun label kind acc -> CompletionItem.create ~label ~kind () :: acc)
-    symbols []
-
-let definitions : (string * string, Linol_lsp.Lsp.Types.Location.t) Hashtbl.t =
-  Hashtbl.create 50
-
-let get_word_at_pos content line col =
-  let lines = String.split_on_char '\n' content in
-  if line < 0 || line >= List.length lines then ""
-  else
-    let target_line = List.nth lines line in
-    if col < 0 || col > String.length target_line then ""
-    else
-      let is_ident_char c =
-        match c with
-        | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' -> true
-        | _ -> false
-      in
-      let rec find_start i =
-        if i > 0 && is_ident_char target_line.[i - 1] then find_start (i - 1)
-        else i
-      in
-      let rec find_end i =
-        if i < String.length target_line && is_ident_char target_line.[i] then
-          find_end (i + 1)
-        else i
-      in
-      let start_idx = find_start col in
-      let end_idx = find_end col in
-      if start_idx < end_idx then
-        String.sub target_line start_idx (end_idx - start_idx)
-      else ""
-
-let index_document uri src =
-  let lexbuf = Lexing.from_string src in
+let analyze_document uri src =
   let uri_str = DocumentUri.to_string uri in
+  match parse_ast src with
+  | None -> ()
+  | Some ast ->
+      let symbols = ref [] in
+      let hints = ref [] in
+      let lenses = ref [] in
+      let completions : (string, Linol_lsp.Types.CompletionItemKind.t) Hashtbl.t
+          =
+        Hashtbl.create 50
+      in
+      let lines = String.split_on_char '\n' src in
 
-  let rec loop () =
-    try
-      let token = Ce_lexer.Lexer.tokenize lexbuf in
-      match token with
-      | Ce_parser.Parser.EOF -> ()
-      | Ce_parser.Parser.LET | Ce_parser.Parser.FN | Ce_parser.Parser.STRUCT
-      | Ce_parser.Parser.TRAIT ->
-          let next_tok = Ce_lexer.Lexer.tokenize lexbuf in
-          let target_tok =
-            if token = Ce_parser.Parser.LET && next_tok = Ce_parser.Parser.MUT
-            then Ce_lexer.Lexer.tokenize lexbuf
-            else next_tok
-          in
+      let get_line l =
+        if l >= 0 && l < List.length lines then String.trim (List.nth lines l)
+        else ""
+      in
 
-          (match target_tok with
-          | Ce_parser.Parser.IDENT name ->
-              let pos = lexbuf.lex_curr_p in
-              let line = pos.pos_lnum - 1 in
-              let col = pos.pos_cnum - pos.pos_bol in
-              let start_pos =
-                Position.create ~line ~character:(col - String.length name)
+      let add_def name loc kind =
+        let line = loc.line - 1 in
+        let col = loc.col in
+        let len = String.length name in
+        let start_pos = Position.create ~line ~character:col in
+        let end_pos = Position.create ~line ~character:(col + len) in
+        let range = Range.create ~start:start_pos ~end_:end_pos in
+
+        let lsp_loc = Location.create ~uri ~range in
+        Hashtbl.replace definitions (uri_str, name) lsp_loc;
+        Hashtbl.replace signatures (uri_str, name) (get_line line);
+
+        let symbol =
+          DocumentSymbol.create ~name ~kind ~range ~selectionRange:range ()
+        in
+        symbols := symbol :: !symbols;
+
+        let comp_kind =
+          match kind with
+          | SymbolKind.Function -> CompletionItemKind.Function
+          | SymbolKind.Struct -> CompletionItemKind.Struct
+          | SymbolKind.Interface -> CompletionItemKind.Interface
+          | SymbolKind.Method -> CompletionItemKind.Method
+          | _ -> CompletionItemKind.Variable
+        in
+        Hashtbl.replace completions name comp_kind
+      in
+
+      let rec visit_stmt s =
+        match s.node with
+        | DefLet (name, _, ty, expr_opt) -> (
+            add_def name s.loc SymbolKind.Variable;
+            if ty = TUnknown then begin
+              let inferred =
+                match expr_opt with
+                | Some { node = Int _ } -> "int"
+                | Some { node = Float _ } -> "float"
+                | Some { node = String _ } -> "string"
+                | Some { node = Bool _ } -> "bool"
+                | Some { node = Char _ } -> "char"
+                | _ -> "any"
               in
-              let end_pos = Position.create ~line ~character:col in
-              let range = Range.create ~start:start_pos ~end_:end_pos in
-              let loc = Location.create ~uri ~range in
-
-              Hashtbl.replace definitions (uri_str, name) loc;
-
-              let lines = String.split_on_char '\n' src in
-              if line >= 0 && line < List.length lines then
-                let sig_text = String.trim (List.nth lines line) in
-                Hashtbl.replace signatures (uri_str, name) sig_text
-          | _ -> ());
-          loop ()
-      | _ -> loop ()
-    with _ -> ()
-  in
-  loop ()
-
-let get_document_symbols src =
-  let lexbuf = Lexing.from_string src in
-  let symbols = ref [] in
-
-  let rec loop () =
-    try
-      let token = Ce_lexer.Lexer.tokenize lexbuf in
-      match token with
-      | Ce_parser.Parser.EOF -> ()
-      | Ce_parser.Parser.LET | Ce_parser.Parser.FN | Ce_parser.Parser.STRUCT
-      | Ce_parser.Parser.TRAIT ->
-          let kind =
-            match token with
-            | Ce_parser.Parser.LET -> SymbolKind.Variable
-            | Ce_parser.Parser.FN -> SymbolKind.Function
-            | Ce_parser.Parser.STRUCT -> SymbolKind.Struct
-            | Ce_parser.Parser.TRAIT -> SymbolKind.Interface
-            | _ -> SymbolKind.Variable
-          in
-
-          let next_tok = Ce_lexer.Lexer.tokenize lexbuf in
-          let target_tok =
-            if token = Ce_parser.Parser.LET && next_tok = Ce_parser.Parser.MUT
-            then Ce_lexer.Lexer.tokenize lexbuf
-            else next_tok
-          in
-
-          (match target_tok with
-          | Ce_parser.Parser.IDENT name ->
-              let pos = lexbuf.lex_curr_p in
-              let line = pos.pos_lnum - 1 in
-              let col = pos.pos_cnum - pos.pos_bol in
-              let start_pos =
-                Position.create ~line ~character:(col - String.length name)
-              in
-              let end_pos = Position.create ~line ~character:col in
-              let range = Range.create ~start:start_pos ~end_:end_pos in
-
-              let symbol =
-                DocumentSymbol.create ~name ~kind ~range ~selectionRange:range
+              let line = s.loc.line - 1 in
+              let col = s.loc.col + String.length name in
+              let pos = Position.create ~line ~character:col in
+              let hint =
+                InlayHint.create ~position:pos
+                  ~label:(`String (": " ^ inferred))
+                  ~kind:InlayHintKind.Type ~paddingLeft:false ~paddingRight:true
                   ()
               in
-              symbols := symbol :: !symbols
-          | _ -> ());
-          loop ()
-      | _ -> loop ()
-    with _ -> ()
-  in
-  loop ();
-  List.rev !symbols
-
-let get_inlay_hints src =
-  let lexbuf = Lexing.from_string src in
-  let hints : Linol_lsp.Types.InlayHint.t list ref = ref [] in
-
-  let rec loop () =
-    try
-      let token = Ce_lexer.Lexer.tokenize lexbuf in
-      match token with
-      | Ce_parser.Parser.EOF -> ()
-      | Ce_parser.Parser.LET ->
-          let next_tok = Ce_lexer.Lexer.tokenize lexbuf in
-          let is_mut, name_tok =
-            if next_tok = Ce_parser.Parser.MUT then
-              (true, Ce_lexer.Lexer.tokenize lexbuf)
-            else (false, next_tok)
-          in
-
-          (match name_tok with
-          | Ce_parser.Parser.IDENT name ->
-              let after_name = Ce_lexer.Lexer.tokenize lexbuf in
-              if after_name = Ce_parser.Parser.EQUALS then begin
-                let pos = lexbuf.lex_curr_p in
-                let line = pos.pos_lnum - 1 in
-                let col = pos.pos_cnum - pos.pos_bol - 1 in
-                let val_tok = Ce_lexer.Lexer.tokenize lexbuf in
-                let inferred_type =
-                  match val_tok with
-                  | Ce_parser.Parser.INT _ -> "int"
-                  | Ce_parser.Parser.FLOAT _ -> "float"
-                  | Ce_parser.Parser.STRING _ -> "string"
-                  | Ce_parser.Parser.TRUE | Ce_parser.Parser.FALSE -> "bool"
-                  | Ce_parser.Parser.CHAR _ -> "char"
-                  | _ -> "any"
-                in
-
-                let hint_pos = Position.create ~line ~character:col in
-                let hint =
-                  InlayHint.create ~position:hint_pos
-                    ~label:(`String (": " ^ inferred_type))
-                    ~kind:InlayHintKind.Type ~paddingLeft:false
-                    ~paddingRight:true ()
-                in
-                hints := hint :: !hints
-              end
-          | _ -> ());
-          loop ()
-      | _ -> loop ()
-    with _ -> ()
-  in
-  loop ();
-  !hints
-
-let get_code_lenses uri src =
-  let lexbuf = Lexing.from_string src in
-  let lenses = ref [] in
-  let uri_str = DocumentUri.to_string uri in
-
-  let rec loop () =
-    try
-      let token = Ce_lexer.Lexer.tokenize lexbuf in
-      match token with
-      | Ce_parser.Parser.EOF -> ()
-      | Ce_parser.Parser.FN ->
-          (match Ce_lexer.Lexer.tokenize lexbuf with
-          | Ce_parser.Parser.IDENT "main" ->
-              let pos = lexbuf.lex_curr_p in
-              let line = pos.pos_lnum - 1 in
+              hints := hint :: !hints
+            end;
+            match expr_opt with Some e -> visit_expr e | None -> ())
+        | DefFN (name, _, _, _, body) ->
+            add_def name s.loc SymbolKind.Function;
+            if name = "main" then begin
+              let line = s.loc.line - 1 in
               let range =
                 Range.create
                   ~start:(Position.create ~line ~character:0)
                   ~end_:(Position.create ~line ~character:7)
               in
-
               let command =
                 Command.create ~title:"▶ Run Program" ~command:"ce.run"
                   ~arguments:[ `String uri_str ]
                   ()
               in
-              let lens = CodeLens.create ~range ~command () in
-              lenses := lens :: !lenses
-          | _ -> ());
-          loop ()
-      | _ -> loop ()
-    with _ -> ()
-  in
-  loop ();
-  !lenses
+              lenses := CodeLens.create ~range ~command () :: !lenses
+            end;
+            List.iter visit_stmt body
+        | DefStruct (name, _, _) -> add_def name s.loc SymbolKind.Struct
+        | DefInterface (name, _) -> add_def name s.loc SymbolKind.Interface
+        | Impl (_, _, methods) ->
+            List.iter
+              (fun (m_name, _, _, _, _, body) ->
+                add_def m_name s.loc SymbolKind.Method;
+                List.iter visit_stmt body)
+              methods
+        | Assign (_, e)
+        | ArrayAssign (_, _, e)
+        | DerefAssign (_, e)
+        | Return e
+        | Raise e ->
+            visit_expr e
+        | Block stmts -> List.iter visit_stmt stmts
+        | Expr e -> visit_expr e
+        | For (i, c, m, stmts) ->
+            (match i with Some st -> visit_stmt st | None -> ());
+            (match c with Some ex -> visit_expr ex | None -> ());
+            (match m with Some st -> visit_stmt st | None -> ());
+            List.iter visit_stmt stmts
+        | ForEach (_, _, iter, stmts) ->
+            visit_expr iter;
+            List.iter visit_stmt stmts
+        | _ -> ()
+      and visit_expr e =
+        match e.node with
+        | Struct (_, _, fields) ->
+            List.iter (fun (_, ex) -> visit_expr ex) fields
+        | Call (_, _, args) -> List.iter visit_expr args
+        | Array (_, _, elems) -> List.iter visit_expr elems
+        | ArrayAccess (_, idx) -> visit_expr idx
+        | If (c, tb, elifs, eb) -> (
+            visit_expr c;
+            List.iter visit_stmt tb;
+            List.iter
+              (fun (ec, eb) ->
+                visit_expr ec;
+                List.iter visit_stmt eb)
+              elifs;
+            match eb with Some e -> List.iter visit_stmt e | None -> ())
+        | Tuple elems -> List.iter visit_expr elems
+        | AnonFN (_, _, body) -> List.iter visit_stmt body
+        | Catch (ex, _, _, body) ->
+            visit_expr ex;
+            List.iter visit_stmt body
+        | CatchExpr (ex, handler) ->
+            visit_expr ex;
+            visit_expr handler
+        | Add (l, r)
+        | Sub (l, r)
+        | Mul (l, r)
+        | Div (l, r)
+        | Mod (l, r)
+        | Eq (l, r)
+        | Lt (l, r)
+        | Lte (l, r)
+        | Gt (l, r)
+        | Gte (l, r)
+        | And (l, r)
+        | Or (l, r) ->
+            visit_expr l;
+            visit_expr r
+        | Neg ex | Not ex | Ref ex | Deref ex -> visit_expr ex
+        | _ -> ()
+      in
+
+      List.iter visit_stmt ast;
+      let result =
+        {
+          symbols = List.rev !symbols;
+          hints = List.rev !hints;
+          lenses = List.rev !lenses;
+          completions;
+        }
+      in
+      Hashtbl.replace analyses uri_str result
+
+let get_dynamic_completions uri_str =
+  match Hashtbl.find_opt analyses uri_str with
+  | Some res ->
+      Hashtbl.fold
+        (fun label kind acc -> CompletionItem.create ~label ~kind () :: acc)
+        res.completions []
+  | None -> []
+
+let get_document_symbols uri_str =
+  match Hashtbl.find_opt analyses uri_str with
+  | Some res -> res.symbols
+  | None -> []
+
+let get_inlay_hints uri_str =
+  match Hashtbl.find_opt analyses uri_str with
+  | Some res -> res.hints
+  | None -> []
+
+let get_code_lenses uri_str =
+  match Hashtbl.find_opt analyses uri_str with
+  | Some res -> res.lenses
+  | None -> []
 
 class ce_lsp_server =
   object (self)
@@ -387,20 +337,19 @@ class ce_lsp_server =
     method spawn_query_handler f = Lwt.async f
 
     method on_notif_doc_did_open ~notify_back d ~content =
-      log "on_notif_doc_did_open: checking syntax...";
       Hashtbl.replace documents (DocumentUri.to_string d.uri) content;
-      index_document d.uri content;
+      analyze_document d.uri content;
       publish_diags notify_back d.uri content
 
     method on_notif_doc_did_close ~notify_back:_ uri =
       Hashtbl.remove documents (DocumentUri.to_string uri.uri);
+      Hashtbl.remove analyses (DocumentUri.to_string uri.uri);
       Lwt.return_unit
 
     method on_notif_doc_did_change ~notify_back d _c ~old_content:_ ~new_content
         =
-      log "on_notif_doc_did_change: file changed, running parser...";
       Hashtbl.replace documents (DocumentUri.to_string d.uri) new_content;
-      index_document d.uri new_content;
+      analyze_document d.uri new_content;
       publish_diags notify_back d.uri new_content
 
     method! on_req_execute_command ~notify_back ~id:_ ~workDoneToken:_ _command
@@ -409,11 +358,7 @@ class ce_lsp_server =
 
     method! on_req_completion ~notify_back:_ ~id:_ ~uri ~pos:_ ~ctx:_
         ~workDoneToken:_ ~partialResultToken:_ _doc_state =
-      log "Autocomplete requested!";
       let uri_str = DocumentUri.to_string uri in
-      let content =
-        match Hashtbl.find_opt documents uri_str with Some c -> c | None -> ""
-      in
 
       let create_keyword label =
         CompletionItem.create ~label ~kind:CompletionItemKind.Keyword ()
@@ -477,7 +422,7 @@ class ce_lsp_server =
           ~insertTextFormat:InsertTextFormat.Snippet
           ~detail:"Define a new function" ()
       in
-      let dynamic_items = get_dynamic_completions content in
+      let dynamic_items = get_dynamic_completions uri_str in
       let items = fn_snippet :: (keywords @ types @ dynamic_items) in
       Lwt.return_some (`List items)
 
@@ -503,14 +448,12 @@ class ce_lsp_server =
 
     method! on_req_definition ~notify_back:_ ~id:_ ~uri ~pos ~workDoneToken:_
         ~partialResultToken:_ _doc_state =
-      log "Go to definition requested!";
       let uri_str = DocumentUri.to_string uri in
 
       match Hashtbl.find_opt documents uri_str with
       | None -> Lwt.return_none
       | Some content -> (
           let word = get_word_at_pos content pos.line pos.character in
-          log ("Looking for definition of: " ^ word);
 
           if word = "" then Lwt.return_none
           else
@@ -520,31 +463,19 @@ class ce_lsp_server =
 
     method on_req_symbol ~notify_back:_ ~id:_ ~uri ~workDoneToken:_
         ~partialResultToken:_ _doc_state =
-      log "Document Symbols (Outline) requested!";
       let uri_str = DocumentUri.to_string uri in
-
-      match Hashtbl.find_opt documents uri_str with
-      | None -> Lwt.return_none
-      | Some content ->
-          let symbols = get_document_symbols content in
-          Lwt.return_some (`DocumentSymbol symbols)
+      let symbols = get_document_symbols uri_str in
+      Lwt.return_some (`DocumentSymbol symbols)
 
     method! on_req_inlay_hint ~notify_back:_ ~id:_ ~uri ~range:_ () =
-      log "Inlay hints requested!";
       let uri_str = DocumentUri.to_string uri in
-
-      match Hashtbl.find_opt documents uri_str with
-      | None -> Lwt.return_none
-      | Some content ->
-          let hints = get_inlay_hints content in
-          Lwt.return_some hints
+      let hints = get_inlay_hints uri_str in
+      Lwt.return_some hints
 
     method! on_req_code_lens ~notify_back:_ ~id:_ ~uri ~workDoneToken:_
         ~partialResultToken:_ state =
       let uri_str = DocumentUri.to_string uri in
-      match Hashtbl.find_opt documents uri_str with
-      | None -> Lwt.return []
-      | Some content -> Lwt.return (get_code_lenses uri content)
+      Lwt.return (get_code_lenses uri_str)
   end
 
 let execute () =
