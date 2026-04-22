@@ -2,10 +2,9 @@ open Llvm
 open Llvm_target
 open Ce_parser.Ast
 open Compiler_intf
-
-module rec Types : TYPES = Type_gen.Make (Stmt)
-and Expr : EXPR = Expr_gen.Make (Types) (Stmt)
-and Stmt : STMT = Stmt_gen.Make (Types) (Expr)
+module Types = Type_gen.Make ()
+module Expr = Expr_gen.Make (Types)
+module Stmt = Stmt_gen.Make (Types) (Expr)
 
 let optimize the_module =
   ignore (Llvm_all_backends.initialize ());
@@ -24,4 +23,12 @@ let compile (stmts : stmt list) =
   let env = State.create_env ce_ctx in
   Builtin.initialize ce_ctx ce_module ce_builder;
   List.iter (fun s -> ignore (Stmt.codegen env s)) stmts;
+  let rec process_pending () =
+    if not (Queue.is_empty env.pending_instantiations) then begin
+      let stmt = Queue.pop env.pending_instantiations in
+      ignore (Stmt.codegen env stmt);
+      process_pending ()
+    end
+  in
+  process_pending ();
   optimize ce_module

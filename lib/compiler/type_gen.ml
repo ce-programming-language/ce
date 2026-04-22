@@ -4,7 +4,7 @@ open State
 open Substitue
 open Compiler_intf
 
-module Make (Stmt : STMT) : TYPES = struct
+module Make () : TYPES = struct
   exception Error of string
 
   let rec llvm_type_of env = function
@@ -84,11 +84,9 @@ module Make (Stmt : STMT) : TYPES = struct
                 fields
             in
 
-            ignore
-              (Stmt.codegen env
-                 (Utils.mk_stmt
-                    (DefStruct (mangled_name, [], specialized_fields))));
-
+            Queue.push
+              (Utils.mk_stmt (DefStruct (mangled_name, [], specialized_fields)))
+              env.pending_instantiations;
             (match Hashtbl.find_opt env.impl_templates name with
             | Some (_, methods) ->
                 let specialized_methods =
@@ -112,10 +110,9 @@ module Make (Stmt : STMT) : TYPES = struct
                         sub_body ))
                     methods
                 in
-                ignore
-                  (Stmt.codegen env
-                     (Utils.mk_stmt
-                        (Impl (mangled_name, [], specialized_methods))))
+                Queue.push
+                  (Utils.mk_stmt (Impl (mangled_name, [], specialized_methods)))
+                  env.pending_instantiations
             | None -> ());
 
             (match saved_bb with
@@ -150,17 +147,10 @@ module Make (Stmt : STMT) : TYPES = struct
           in
           let sub_ret_ty = substitute_type type_map ret_ty in
           let sub_body = List.map (substitute_stmt type_map) body in
-          let saved_bb =
-            try Some (insertion_block ce_builder) with Not_found -> None
-          in
-
-          ignore
-            (Stmt.codegen env
-               (Utils.mk_stmt
-                  (DefFN (mangled_name, [], sub_params, sub_ret_ty, sub_body))));
-          (match saved_bb with
-          | Some bb -> position_at_end bb ce_builder
-          | None -> ());
+          Queue.push
+            (Utils.mk_stmt
+               (DefFN (mangled_name, [], sub_params, sub_ret_ty, sub_body)))
+            env.pending_instantiations;
           mangled_name
       | None -> raise (Error ("Undefined generic function: " ^ name))
       end

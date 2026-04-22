@@ -23,6 +23,7 @@ type compiler_env = {
   loop_exit_blocks : llbasicblock Stack.t;
   current_fn_is_res : bool ref;
   current_fn_ret_ty : lltype ref;
+  pending_instantiations : Ce_parser.Ast.stmt Queue.t;
 }
 
 let create_env context =
@@ -39,4 +40,5 @@ let create_env context =
     loop_exit_blocks = Stack.create ();
     current_fn_is_res = ref false;
     current_fn_ret_ty = ref @@ void_type context;
+    pending_instantiations = Queue.create ();
   }
