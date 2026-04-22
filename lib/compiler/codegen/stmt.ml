@@ -76,8 +76,8 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         in
 
         let alloca = build_alloca ll_ty name ce_builder_alloca in
+        ignore (Utils.Stmt.gen_assignment ce_builder ll_ty alloca init_val);
 
-        ignore (build_store init_val alloca ce_builder);
         Hashtbl.add env.named_values name (alloca, inferred_ty, ismut);
         alloca
     | DefFN (name, tparams, params, ret_ty, body) ->
@@ -125,16 +125,10 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           (match block_terminator current_bb with
           | Some _ -> ()
           | None ->
-              if ret_ty = TVoid then ignore (build_ret_void ce_builder)
-              else if !(env.current_fn_is_res) then begin
-                let r_ty = !(env.current_fn_ret_ty) in
-                let s1 =
-                  build_insertvalue (const_null r_ty)
-                    (const_int (i1_type ce_ctx) 0)
-                    0 "res_ok" ce_builder
-                in
-                ignore (build_ret s1 ce_builder)
-              end
+              if ret_ty = TVoid || !(env.current_fn_is_res) then
+                ignore
+                  (Utils.Stmt.gen_return env ce_builder ce_ctx
+                     (const_null (void_type ce_ctx)))
               else
                 raise
                   (Utils.mk_error s.loc
@@ -293,8 +287,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         let val_to_store =
           Expr.coerce_value env s.loc expected_ll_ty val_ is_u is_src_u
         in
-        ignore (build_store val_to_store var_ptr ce_builder);
-        val_to_store
+        Utils.Stmt.gen_assignment ce_builder expected_ll_ty var_ptr val_to_store
     | ArrayAssign (name, index_expr, val_expr) ->
         let array_ptr_val, array_ty =
           match Hashtbl.find_opt env.named_values name with
@@ -320,9 +313,9 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
             (Types.llvm_type_of env array_ty)
             array_ptr_val indices "arrayidx" ce_builder
         in
-
-        ignore (build_store val_to_store element_ptr ce_builder);
-        val_to_store
+        let expected_ll_ty = element_type (Types.llvm_type_of env array_ty) in
+        Utils.Stmt.gen_assignment ce_builder expected_ll_ty element_ptr
+          val_to_store
     | DerefAssign (ptr_expr, val_expr) ->
         let actual_ptr = Expr.codegen env codegen ptr_expr in
         let ptr_ast_ty = infer_ast_type env ptr_expr in
@@ -339,6 +332,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         let raw_val = Expr.codegen env codegen val_expr in
         let src_ty = infer_ast_type env val_expr in
         let is_src_u = is_unsigned src_ty in
+        let expected_ll_ty = Types.llvm_type_of env expected_ast_ty in
         let val_to_store =
           Expr.coerce_value env s.loc
             (Types.llvm_type_of env expected_ast_ty)
@@ -346,9 +340,8 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
             (is_unsigned expected_ast_ty)
             is_src_u
         in
-
-        ignore (build_store val_to_store actual_ptr ce_builder);
-        val_to_store
+        Utils.Stmt.gen_assignment ce_builder expected_ll_ty actual_ptr
+          val_to_store
     | Block stmts ->
         gen_block env stmts;
         const_null (void_type ce_ctx)
@@ -426,9 +419,10 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           build_alloca (i32_type ce_ctx) "foreach_idx" ce_builder
         in
         ignore
-          (build_store (const_int (i32_type ce_ctx) 0) idx_alloc ce_builder);
-        ignore (build_br cond_bb ce_builder);
+          (Utils.Stmt.gen_assignment ce_builder (i32_type ce_ctx) idx_alloc
+             (const_int (i32_type ce_ctx) 0));
 
+        ignore (build_br cond_bb ce_builder);
         position_at_end cond_bb ce_builder;
         let current_idx =
           build_load (i32_type ce_ctx) idx_alloc "curr_idx" ce_builder

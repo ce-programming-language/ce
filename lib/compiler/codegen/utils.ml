@@ -91,16 +91,14 @@ let mk_error (loc : loc) msg =
   Error (Printf.sprintf "%s:%d:%d: %s" loc.file loc.line loc.col msg)
 
 module Expr = struct
-  let gen_binary_op env op_type l_val r_val l_ty ce_builder ce_ctx =
-    let is_unsigned_ty =
-      match l_ty with TInt (_, Unsigned) -> true | _ -> false
-    in
+  let gen_binary_op op_type l_val r_val l_ty =
+    let is_unsigned_ty = is_unsigned l_ty in
     match op_type with
     | `Add ->
-        if
-          classify_type (type_of l_val) = TypeKind.Pointer
-          || classify_type (type_of r_val) = TypeKind.Pointer
-        then build_ptr_arith l_val r_val build_add "addptr"
+        if classify_type (type_of l_val) = TypeKind.Pointer then
+          build_ptr_arith l_val r_val build_add "addptr"
+        else if classify_type (type_of r_val) = TypeKind.Pointer then
+          build_ptr_arith r_val l_val build_add "addptr"
         else build_numeric_op l_val r_val build_add build_fadd "addtmp"
     | `Sub ->
         if classify_type (type_of l_val) = TypeKind.Pointer then
@@ -111,8 +109,31 @@ module Expr = struct
         build_numeric_op l_val r_val
           (if is_unsigned_ty then build_udiv else build_sdiv)
           build_fdiv "divtmp"
-  (* Add other operators... *)
-  (* *)
+    | `Mod ->
+        build_numeric_op l_val r_val
+          (if is_unsigned_ty then build_urem else build_srem)
+          build_frem "modtmp"
+    | `Eq ->
+        build_numeric_op l_val r_val (build_icmp Icmp.Eq) (build_fcmp Fcmp.Oeq)
+          "eqtmp"
+    | `Lt ->
+        build_numeric_op l_val r_val
+          (build_icmp (if is_unsigned_ty then Icmp.Ult else Icmp.Slt))
+          (build_fcmp Fcmp.Olt) "lttmp"
+    | `Lte ->
+        build_numeric_op l_val r_val
+          (build_icmp (if is_unsigned_ty then Icmp.Ule else Icmp.Sle))
+          (build_fcmp Fcmp.Ole) "ltetmp"
+    | `Gt ->
+        build_numeric_op l_val r_val
+          (build_icmp (if is_unsigned_ty then Icmp.Ugt else Icmp.Sgt))
+          (build_fcmp Fcmp.Ogt) "gttmp"
+    | `Gte ->
+        build_numeric_op l_val r_val
+          (build_icmp (if is_unsigned_ty then Icmp.Uge else Icmp.Sge))
+          (build_fcmp Fcmp.Oge) "gtetmp"
+    | `And -> build_and l_val r_val "andtmp" ce_builder
+    | `Or -> build_or l_val r_val "ortmp" ce_builder
 end
 
 module Stmt = struct
@@ -141,5 +162,4 @@ module Stmt = struct
   let gen_assignment ce_builder expected_ll_ty var_ptr val_to_store =
     ignore (build_store val_to_store var_ptr ce_builder);
     val_to_store
-  (* *)
 end

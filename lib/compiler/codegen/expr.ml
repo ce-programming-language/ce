@@ -904,16 +904,10 @@ module Make (Types : TYPES) : EXPR = struct
         (match block_terminator current_bb with
         | Some _ -> ()
         | None ->
-            if ret_ty = TVoid then ignore (build_ret_void ce_builder)
-            else if !(env.current_fn_is_res) then begin
-              let r_ty = !(env.current_fn_ret_ty) in
-              let s1 =
-                build_insertvalue (const_null r_ty)
-                  (const_int (i1_type ce_ctx) 0)
-                  0 "res_ok" ce_builder
-              in
-              ignore (build_ret s1 ce_builder)
-            end
+            if ret_ty = TVoid || !(env.current_fn_is_res) then
+              ignore
+                (Utils.Stmt.gen_return env ce_builder ce_ctx
+                   (const_null (void_type ce_ctx)))
             else
               raise
                 (Utils.mk_error e.loc
@@ -991,85 +985,62 @@ module Make (Types : TYPES) : EXPR = struct
         let lv, rv =
           (codegen env compile_stmt_cb l, codegen env compile_stmt_cb r)
         in
-        if classify_type (type_of lv) = TypeKind.Pointer then
-          build_ptr_arith lv rv build_add "addptr"
-        else if classify_type (type_of rv) = TypeKind.Pointer then
-          build_ptr_arith rv lv build_add "addptr"
-        else build_numeric_op lv rv build_add build_fadd "addtmp"
+        Utils.Expr.gen_binary_op `Add lv rv (infer_ast_type env l)
     | Sub (l, r) ->
         let lv, rv =
           (codegen env compile_stmt_cb l, codegen env compile_stmt_cb r)
         in
-        if classify_type (type_of lv) = TypeKind.Pointer then
-          build_ptr_arith lv rv build_sub "subptr"
-        else build_numeric_op lv rv build_sub build_fsub "subtmp"
+        Utils.Expr.gen_binary_op `Sub lv rv (infer_ast_type env l)
     | Mul (l, r) ->
         let lv, rv =
           (codegen env compile_stmt_cb l, codegen env compile_stmt_cb r)
         in
-        build_numeric_op lv rv build_mul build_fmul "multmp"
+        Utils.Expr.gen_binary_op `Mul lv rv (infer_ast_type env l)
     | Div (l, r) ->
         let lv, rv =
           (codegen env compile_stmt_cb l, codegen env compile_stmt_cb r)
         in
-        build_numeric_op lv rv
-          (if is_unsigned (infer_ast_type env l) then build_udiv else build_sdiv)
-          build_fdiv "divtmp"
+        Utils.Expr.gen_binary_op `Div lv rv (infer_ast_type env l)
     | Mod (l, r) ->
         let lv, rv =
           (codegen env compile_stmt_cb l, codegen env compile_stmt_cb r)
         in
-        build_numeric_op lv rv
-          (if is_unsigned (infer_ast_type env l) then build_urem else build_srem)
-          build_frem "modtmp"
+        Utils.Expr.gen_binary_op `Mod lv rv (infer_ast_type env l)
     | Eq (l, r) ->
         let lv, rv =
           (codegen env compile_stmt_cb l, codegen env compile_stmt_cb r)
         in
-        build_numeric_op lv rv (build_icmp Icmp.Eq) (build_fcmp Fcmp.Oeq)
-          "eqtmp"
+        Utils.Expr.gen_binary_op `Eq lv rv (infer_ast_type env l)
     | Lt (l, r) ->
         let lv, rv =
           (codegen env compile_stmt_cb l, codegen env compile_stmt_cb r)
         in
-        build_numeric_op lv rv
-          (build_icmp
-             (if is_unsigned (infer_ast_type env l) then Icmp.Ult else Icmp.Slt))
-          (build_fcmp Fcmp.Olt) "lttmp"
+        Utils.Expr.gen_binary_op `Lt lv rv (infer_ast_type env l)
     | Lte (l, r) ->
         let lv, rv =
           (codegen env compile_stmt_cb l, codegen env compile_stmt_cb r)
         in
-        build_numeric_op lv rv
-          (build_icmp
-             (if is_unsigned (infer_ast_type env l) then Icmp.Ule else Icmp.Sle))
-          (build_fcmp Fcmp.Ole) "ltetmp"
+        Utils.Expr.gen_binary_op `Lte lv rv (infer_ast_type env l)
     | Gt (l, r) ->
         let lv, rv =
           (codegen env compile_stmt_cb l, codegen env compile_stmt_cb r)
         in
-        build_numeric_op lv rv
-          (build_icmp
-             (if is_unsigned (infer_ast_type env l) then Icmp.Ugt else Icmp.Sgt))
-          (build_fcmp Fcmp.Ogt) "gttmp"
+        Utils.Expr.gen_binary_op `Gt lv rv (infer_ast_type env l)
     | Gte (l, r) ->
         let lv, rv =
           (codegen env compile_stmt_cb l, codegen env compile_stmt_cb r)
         in
-        build_numeric_op lv rv
-          (build_icmp
-             (if is_unsigned (infer_ast_type env l) then Icmp.Uge else Icmp.Sge))
-          (build_fcmp Fcmp.Oge) "gtetmp"
+        Utils.Expr.gen_binary_op `Gte lv rv (infer_ast_type env l)
     | And (l, r) ->
-        build_and
-          (codegen env compile_stmt_cb l)
-          (codegen env compile_stmt_cb r)
-          "andtmp" ce_builder
+        let lv, rv =
+          (codegen env compile_stmt_cb l, codegen env compile_stmt_cb r)
+        in
+        Utils.Expr.gen_binary_op `And lv rv (infer_ast_type env l)
     | Or (l, r) ->
-        build_or
-          (codegen env compile_stmt_cb l)
-          (codegen env compile_stmt_cb r)
-          "ortmp" ce_builder
+        let lv, rv =
+          (codegen env compile_stmt_cb l, codegen env compile_stmt_cb r)
+        in
+        Utils.Expr.gen_binary_op `Or lv rv (infer_ast_type env l)
     | Neg e ->
         let v = codegen env compile_stmt_cb e in
         if type_of v = double_type ce_ctx then build_fneg v "fnegtmp" ce_builder
