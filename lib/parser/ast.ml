@@ -4,7 +4,15 @@ let ce_ctx = global_context ()
 let ce_module = create_module ce_ctx "ce"
 let ce_builder = builder ce_ctx
 
-type loc = { line : int; col : int; file : string } [@@deriving show, eq]
+type loc = {
+  line : int;
+  end_line : int;
+  col : int;
+  end_col : int;
+  file : string;
+}
+[@@deriving show, eq]
+
 type int_size = I8 | I16 | I32 | I64 | I128 [@@deriving show, eq]
 type signedness = Signed | Unsigned [@@deriving show, eq]
 type float_size = F32 | F64 [@@deriving show, eq]
@@ -33,6 +41,7 @@ type expr = {
   loc : loc;
   node : expr_node;
   inferred_type : types option ref; [@opaque]
+  resolved_def_id : int option ref; [@opaque]
 }
 [@@deriving show]
 
@@ -75,7 +84,9 @@ and expr_node =
 and param = { param_name : string; ty : types }
 and struct_field = { field_name : string; ty : types; is_mut : bool }
 and fn_signature = { fn_name : string; params : param list; ret_ty : types }
-and stmt = { id : int; loc : loc; node : stmt_node } [@@deriving show]
+
+and stmt = { id : int; loc : loc; node : stmt_node; docstring : string option }
+[@@deriving show]
 
 and stmt_node =
   | Expr of expr

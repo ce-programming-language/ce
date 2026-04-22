@@ -7,13 +7,25 @@
     incr next_ast_id;
     id
 
-  let make_loc (pos : Lexing.position) =
-    { line = pos.pos_lnum;
-      col = pos.pos_cnum - pos.pos_bol;
-      file = pos.pos_fname }
+  let make_loc (start_pos : Lexing.position) (end_pos : Lexing.position) =
+    { line = start_pos.pos_lnum;
+      col = start_pos.pos_cnum - start_pos.pos_bol;
+      end_line = end_pos.pos_lnum;
+      end_col = end_pos.pos_cnum - end_pos.pos_bol;
+      file = start_pos.pos_fname }
 
-  let mk_expr pos (node: expr_node): expr = {id = get_id (); loc = make_loc pos; inferred_type = ref None; node }
-  let mk_stmt pos (node: stmt_node): stmt = {id = get_id (); loc = make_loc pos; node }
+  let mk_expr start_pos end_pos (node: expr_node): expr = 
+    { id = get_id (); 
+      loc = make_loc start_pos end_pos; 
+      node; 
+      inferred_type = ref None; 
+      resolved_def_id = ref None }
+      
+  let mk_stmt start_pos end_pos (node: stmt_node): stmt = 
+    { id = get_id (); 
+      loc = make_loc start_pos end_pos; 
+      node; 
+      docstring = None }
 
   let rec attach_generic_call (e: expr) targs args =
     let attached = match e.node with
@@ -108,9 +120,9 @@ global_stmt:
   | def_struct      { $1 }
   | def_trait       { $1 }
   | def_extern      { $1 }
-  | IMPORT path = module_path { mk_stmt $startpos @@ Import path }
+  | IMPORT path = module_path { mk_stmt $startpos $endpos @@ Import path }
   | IMPL struct_name = impl_target params = generic_params_opt LBRACE sep_opt methods = impl_method_list RBRACE
-      { mk_stmt $startpos @@ Impl (struct_name, params, methods) }
+      { mk_stmt $startpos $endpos @@ Impl (struct_name, params, methods) }
 
 stmt:
   | def_fn          { $1 }
@@ -119,25 +131,25 @@ stmt:
   | def_struct      { $1 }
   | def_trait       { $1 }
   | def_extern      { $1 }
-  | name = path EQUALS e = expr { mk_stmt $startpos @@ Assign (name, e) }
-  | name = path LBRACKET idx = expr RBRACKET EQUALS e = expr { mk_stmt $startpos @@ ArrayAssign (name, idx, e) }
-  | STAR ptr = expr_simple EQUALS e = expr { mk_stmt $startpos @@ DerefAssign (ptr, e) }
-  | RETURN expr     { mk_stmt $startpos @@ Return $2 }
-  | RETURN          { mk_stmt $startpos @@ Return (mk_expr $startpos Void) }
-  | BREAK           { mk_stmt $startpos Break }
-  | block           { mk_stmt $startpos @@ Block $1 }
-  | expr            { mk_stmt $startpos @@ Expr $1 }
-  | RAISE e = expr  { mk_stmt $startpos @@ Raise e }
+  | name = path EQUALS e = expr { mk_stmt $startpos $endpos @@ Assign (name, e) }
+  | name = path LBRACKET idx = expr RBRACKET EQUALS e = expr { mk_stmt $startpos $endpos @@ ArrayAssign (name, idx, e) }
+  | STAR ptr = expr_simple EQUALS e = expr { mk_stmt $startpos $endpos @@ DerefAssign (ptr, e) }
+  | RETURN expr     { mk_stmt $startpos $endpos @@ Return $2 }
+  | RETURN          { mk_stmt $startpos $endpos @@ Return (mk_expr $startpos $endpos Void) }
+  | BREAK           { mk_stmt $startpos $endpos Break }
+  | block           { mk_stmt $startpos $endpos @@ Block $1 }
+  | expr            { mk_stmt $startpos $endpos @@ Expr $1 }
+  | RAISE e = expr  { mk_stmt $startpos $endpos @@ Raise e }
   | IMPL struct_name = impl_target params = generic_params_opt LBRACE sep_opt methods = impl_method_list RBRACE
-      { mk_stmt $startpos @@ Impl (struct_name, params, methods) }
+      { mk_stmt $startpos $endpos @@ Impl (struct_name, params, methods) }
 
-  | FOR idx = IDENT COMMA v = IDENT EQUALS iter = expr_no_struct body = block { mk_stmt $startpos @@ ForEach (Some idx, Some v, iter, body) }
-  | FOR idx = IDENT EQUALS iter = expr_no_struct body = block { mk_stmt $startpos @@ ForEach (Some idx, None, iter, body) }
+  | FOR idx = IDENT COMMA v = IDENT EQUALS iter = expr_no_struct body = block { mk_stmt $startpos $endpos @@ ForEach (Some idx, Some v, iter, body) }
+  | FOR idx = IDENT EQUALS iter = expr_no_struct body = block { mk_stmt $startpos $endpos @@ ForEach (Some idx, None, iter, body) }
 
-  | FOR body = block { mk_stmt $startpos @@ For (None, None, None, body) }
-  | FOR cond = expr_no_struct body = block { mk_stmt $startpos @@ For (None, Some cond, None, body) }
-  | FOR init = for_init SEMICOLON cond = expr_no_struct body = block { mk_stmt $startpos @@ For (Some init, Some cond, None, body) }
-  | FOR init = for_init SEMICOLON cond = expr_no_struct SEMICOLON mut = for_mut body = block { mk_stmt $startpos @@ For (Some init, Some cond, Some mut, body) }
+  | FOR body = block { mk_stmt $startpos $endpos @@ For (None, None, None, body) }
+  | FOR cond = expr_no_struct body = block { mk_stmt $startpos $endpos @@ For (None, Some cond, None, body) }
+  | FOR init = for_init SEMICOLON cond = expr_no_struct body = block { mk_stmt $startpos $endpos @@ For (Some init, Some cond, None, body) }
+  | FOR init = for_init SEMICOLON cond = expr_no_struct SEMICOLON mut = for_mut body = block { mk_stmt $startpos $endpos @@ For (Some init, Some cond, Some mut, body) }
 
 block:
   | LBRACE sep_opt RBRACE             { [] }
@@ -160,12 +172,12 @@ stmt_list:
   | stmt sep stmt_list    { $1 :: $3 }
 
 def_let:
-  | LET name = IDENT ty = types EQUALS e = expr { mk_stmt $startpos @@  DefLet (name, false, ty, Some e) }
-  | LET MUT name = IDENT ty = types EQUALS e = expr { mk_stmt $startpos @@ DefLet (name, true, ty, Some e) }
-  | LET name = IDENT ty = types                 { mk_stmt $startpos @@ DefLet (name, false, ty, None) }
-  | LET MUT name = IDENT ty = types             { mk_stmt $startpos @@ DefLet (name, true, ty, None) }
-  | LET name = IDENT EQUALS e = expr            { mk_stmt $startpos @@ DefLet (name, false, TUnknown, Some e) }
-  | LET MUT name = IDENT EQUALS e = expr        { mk_stmt $startpos @@ DefLet (name, true, TUnknown, Some e) }
+  | LET name = IDENT ty = types EQUALS e = expr { mk_stmt $startpos $endpos @@  DefLet (name, false, ty, Some e) }
+  | LET MUT name = IDENT ty = types EQUALS e = expr { mk_stmt $startpos $endpos @@ DefLet (name, true, ty, Some e) }
+  | LET name = IDENT ty = types                 { mk_stmt $startpos $endpos @@ DefLet (name, false, ty, None) }
+  | LET MUT name = IDENT ty = types             { mk_stmt $startpos $endpos @@ DefLet (name, true, ty, None) }
+  | LET name = IDENT EQUALS e = expr            { mk_stmt $startpos $endpos @@ DefLet (name, false, TUnknown, Some e) }
+  | LET MUT name = IDENT EQUALS e = expr        { mk_stmt $startpos $endpos @@ DefLet (name, true, TUnknown, Some e) }
 
 type_scalar:
   | TYPE_VOID   { TVoid }
@@ -213,16 +225,16 @@ param:
 
 def_fn:
   | FN name = IDENT tparams = generic_params_opt LPAREN params = separated_list(COMMA, param) RPAREN ty = types body = block
-    { mk_stmt $startpos @@ DefFN (name, tparams, params, ty, body) }
+    { mk_stmt $startpos $endpos @@ DefFN (name, tparams, params, ty, body) }
 
 def_type:
-  | TYPE name = IDENT ty = types {  mk_stmt $startpos @@ DefType (name, ty) }
+  | TYPE name = IDENT ty = types {  mk_stmt $startpos $endpos @@ DefType (name, ty) }
 
 def_struct:
   | STRUCT name = IDENT params = generic_params_opt LBRACE sep_opt RBRACE 
-    { mk_stmt $startpos @@  DefStruct (name, params, []) }
+    { mk_stmt $startpos $endpos @@  DefStruct (name, params, []) }
   | STRUCT name = IDENT params = generic_params_opt LBRACE sep_opt fields = struct_field_list RBRACE 
-    { mk_stmt $startpos @@  DefStruct (name, params, fields) }
+    { mk_stmt $startpos $endpos @@  DefStruct (name, params, fields) }
 
 struct_field_list:
   | f = struct_field                                            { [f] }
@@ -294,15 +306,15 @@ impl_target:
 
 def_trait:
   | TRAIT name = IDENT LBRACE sep_opt RBRACE 
-      { mk_stmt $startpos @@  DefInterface (name, []) }
+      { mk_stmt $startpos $endpos @@  DefInterface (name, []) }
   | TRAIT name = IDENT LBRACE sep_opt sigs = fn_signature_list RBRACE 
-      { mk_stmt $startpos @@  DefInterface (name, sigs) }
+      { mk_stmt $startpos $endpos @@  DefInterface (name, sigs) }
 
 def_extern:
   | EXTERN FN name = IDENT LPAREN params = separated_list(COMMA, param) RPAREN ty = types
-      { mk_stmt $startpos @@  ExternFN (None, name, params, ty) }
+      { mk_stmt $startpos $endpos @@  ExternFN (None, name, params, ty) }
   | EXTERN alias = STRING FN name = IDENT LPAREN params = separated_list(COMMA, param) RPAREN ty = types
-      { mk_stmt $startpos @@  ExternFN (Some alias, name, params, ty) }
+      { mk_stmt $startpos $endpos @@  ExternFN (Some alias, name, params, ty) }
 
 fn_signature_list:
   | s = fn_signature                                            { [s] }
@@ -316,35 +328,34 @@ fn_signature:
       { { fn_name = name; params = params; ret_ty = ty } }
 
 for_init:
-  | name = IDENT ty = types EQUALS e = expr_no_struct { mk_stmt $startpos @@  DefLet (name, true, ty, Some e) }
-  | name = IDENT EQUALS e = expr_no_struct            { mk_stmt $startpos @@  DefLet (name, true, TUnknown, Some e) }
+  | name = IDENT ty = types EQUALS e = expr_no_struct { mk_stmt $startpos $endpos @@  DefLet (name, true, ty, Some e) }
+  | name = IDENT EQUALS e = expr_no_struct            { mk_stmt $startpos $endpos @@  DefLet (name, true, TUnknown, Some e) }
 
 for_mut:
-  | name = path EQUALS e = expr_no_struct {  mk_stmt $startpos @@ Assign (name, e) }
-  | name = path LBRACKET idx = expr RBRACKET EQUALS e = expr_no_struct {  mk_stmt $startpos @@ ArrayAssign (name, idx, e) }
-  | STAR ptr = expr_simple EQUALS e = expr_no_struct {  mk_stmt $startpos @@ DerefAssign (ptr, e) }
-  | e = expr_no_struct { mk_stmt $startpos @@  Expr e }
+  | name = path EQUALS e = expr_no_struct {  mk_stmt $startpos $endpos @@ Assign (name, e) }
+  | name = path LBRACKET idx = expr RBRACKET EQUALS e = expr_no_struct {  mk_stmt $startpos $endpos @@ ArrayAssign (name, idx, e) }
+  | STAR ptr = expr_simple EQUALS e = expr_no_struct {  mk_stmt $startpos $endpos @@ DerefAssign (ptr, e) }
+  | e = expr_no_struct { mk_stmt $startpos $endpos @@  Expr e }
 
 expr_simple:
-  | a = array                                                     { mk_expr $startpos a }
+  | a = array                                                     { mk_expr $startpos $endpos a }
   | LPAREN e = expr RPAREN                                        { e }
-  | NIL                                                           { mk_expr $startpos Nil }        
-  | TRUE                                                          { mk_expr $startpos @@ Bool true }
-  | FALSE                                                         { mk_expr $startpos @@ Bool false }
-  | n = INT                                                       { mk_expr $startpos @@ Int n }
-  | f = FLOAT                                                     { mk_expr $startpos @@ Float f }
-  | s = STRING                                                    { mk_expr $startpos @@ String s }
-  | c = CHAR                                                      { mk_expr $startpos @@ Char c }
-  | id = path                                                     { mk_expr $startpos @@ Let id }
-  | MINUS e = expr %prec UMINUS                                   { mk_expr $startpos @@ Neg e }
-  | BANG e = expr %prec UMINUS                                    { mk_expr $startpos @@ Not e }
-  | AMP e = expr_simple                                           { mk_expr $startpos @@ Ref e }
-  | STAR e = expr_simple                                          { mk_expr $startpos @@ Deref e }
-  | name = path LBRACKET idx = expr RBRACKET                      { mk_expr $startpos @@ ArrayAccess (name, idx) }
-  
-  | name = path LBRACE sep_opt RBRACE                             { mk_expr $startpos @@ Struct (name, [], []) }
-  | name = path LBRACE sep_opt fields = struct_init_list RBRACE   { mk_expr $startpos @@ Struct (name, [], fields) }
-  | id = path LPAREN args = separated_list(COMMA, expr) RPAREN    { mk_expr $startpos @@ Call(id, [], args) }
+  | NIL                                                           { mk_expr $startpos $endpos Nil }        
+  | TRUE                                                          { mk_expr $startpos $endpos @@ Bool true }
+  | FALSE                                                         { mk_expr $startpos $endpos @@ Bool false }
+  | n = INT                                                       { mk_expr $startpos $endpos @@ Int n }
+  | f = FLOAT                                                     { mk_expr $startpos $endpos @@ Float f }
+  | s = STRING                                                    { mk_expr $startpos $endpos @@ String s }
+  | c = CHAR                                                      { mk_expr $startpos $endpos @@ Char c }
+  | id = path                                                     { mk_expr $startpos $endpos @@ Let id }
+  | MINUS e = expr %prec UMINUS                                   { mk_expr $startpos $endpos @@ Neg e }
+  | BANG e = expr %prec UMINUS                                    { mk_expr $startpos $endpos @@ Not e }
+  | AMP e = expr_simple                                           { mk_expr $startpos $endpos @@ Ref e }
+  | STAR e = expr_simple                                          { mk_expr $startpos $endpos @@ Deref e }
+  | name = path LBRACKET idx = expr RBRACKET                      { mk_expr $startpos $endpos @@ ArrayAccess (name, idx) }
+  | name = path LBRACE sep_opt RBRACE                             { mk_expr $startpos $endpos @@ Struct (name, [], []) }
+  | name = path LBRACE sep_opt fields = struct_init_list RBRACE   { mk_expr $startpos $endpos @@ Struct (name, [], fields) }
+  | id = path LPAREN args = separated_list(COMMA, expr) RPAREN    { mk_expr $startpos $endpos @@ Call(id, [], args) }
 
   | e = expr LT targs = separated_list(COMMA, types) GT LPAREN args = separated_list(COMMA, expr) RPAREN
     { attach_generic_call e targs args }
@@ -353,64 +364,64 @@ expr_simple:
   | e = expr LT targs = separated_list(COMMA, types) GT LBRACE sep_opt fields = struct_init_list RBRACE
     { attach_generic_struct e targs fields }
 
-  | e = expr_simple CATCH LPAREN id = IDENT RPAREN ty = types body = block { mk_expr $startpos @@ Catch(e, id, ty, body) }
-  | e = expr_simple CATCH handler = expr_simple { mk_expr $startpos @@ CatchExpr(e, handler) }
-  | LPAREN e = expr COMMA rest = separated_nonempty_list(COMMA, expr) RPAREN { mk_expr $startpos @@ Tuple (e :: rest) }
-  | FN LPAREN RPAREN ty = types body = block { mk_expr $startpos @@ AnonFN([], ty, body) }
-  | FN LPAREN params = separated_nonempty_list(COMMA, param) RPAREN ty = types body = block { mk_expr $startpos @@ AnonFN(params, ty, body) }
+  | e = expr_simple CATCH LPAREN id = IDENT RPAREN ty = types body = block { mk_expr $startpos $endpos @@ Catch(e, id, ty, body) }
+  | e = expr_simple CATCH handler = expr_simple { mk_expr $startpos $endpos @@ CatchExpr(e, handler) }
+  | LPAREN e = expr COMMA rest = separated_nonempty_list(COMMA, expr) RPAREN { mk_expr $startpos $endpos @@ Tuple (e :: rest) }
+  | FN LPAREN RPAREN ty = types body = block { mk_expr $startpos $endpos @@ AnonFN([], ty, body) }
+  | FN LPAREN params = separated_nonempty_list(COMMA, param) RPAREN ty = types body = block { mk_expr $startpos $endpos @@ AnonFN(params, ty, body) }
 
 expr:
   | e = expr_simple               { e }
-  | l = expr PLUS  r = expr       { mk_expr $startpos @@ Add (l, r) }
-  | l = expr MINUS r = expr       { mk_expr $startpos @@ Sub (l, r) }
-  | l = expr STAR  r = expr       { mk_expr $startpos @@ Mul (l, r) }
-  | l = expr SLASH r = expr       { mk_expr $startpos @@ Div (l, r) }
-  | l = expr MOD   r = expr       { mk_expr $startpos @@ Mod (l, r) }
-  | l = expr EQEQ  r = expr       { mk_expr $startpos @@ Eq (l, r) }
-  | l = expr LT    r = expr       { mk_expr $startpos @@ Lt (l, r) }
-  | l = expr LTE   r = expr       { mk_expr $startpos @@ Lte (l, r) }
-  | l = expr GT    r = expr       { mk_expr $startpos @@ Gt (l, r) }
-  | l = expr GTE   r = expr       { mk_expr $startpos @@ Gte (l, r) }
-  | l = expr AND   r = expr       { mk_expr $startpos @@ And (l, r) }
-  | l = expr OR    r = expr       { mk_expr $startpos @@ Or (l, r) }
-  | stmt_if { mk_expr $startpos $1 }
+  | l = expr PLUS  r = expr       { mk_expr $startpos $endpos @@ Add (l, r) }
+  | l = expr MINUS r = expr       { mk_expr $startpos $endpos @@ Sub (l, r) }
+  | l = expr STAR  r = expr       { mk_expr $startpos $endpos @@ Mul (l, r) }
+  | l = expr SLASH r = expr       { mk_expr $startpos $endpos @@ Div (l, r) }
+  | l = expr MOD   r = expr       { mk_expr $startpos $endpos @@ Mod (l, r) }
+  | l = expr EQEQ  r = expr       { mk_expr $startpos $endpos @@ Eq (l, r) }
+  | l = expr LT    r = expr       { mk_expr $startpos $endpos @@ Lt (l, r) }
+  | l = expr LTE   r = expr       { mk_expr $startpos $endpos @@ Lte (l, r) }
+  | l = expr GT    r = expr       { mk_expr $startpos $endpos @@ Gt (l, r) }
+  | l = expr GTE   r = expr       { mk_expr $startpos $endpos @@ Gte (l, r) }
+  | l = expr AND   r = expr       { mk_expr $startpos $endpos @@ And (l, r) }
+  | l = expr OR    r = expr       { mk_expr $startpos $endpos @@ Or (l, r) }
+  | stmt_if { mk_expr $startpos $endpos $1 }
   
 expr_simple_no_struct:
-  | a = array                                                     { mk_expr $startpos a }
-  | NIL                                                           { mk_expr $startpos Nil }
+  | a = array                                                     { mk_expr $startpos $endpos a }
+  | NIL                                                           { mk_expr $startpos $endpos Nil }
   | LPAREN e = expr RPAREN                                        { e }
-  | TRUE                                                          { mk_expr $startpos @@ Bool true }
-  | FALSE                                                         { mk_expr $startpos @@ Bool false }
-  | n = INT                                                       { mk_expr $startpos @@ Int n }
-  | f = FLOAT                                                     { mk_expr $startpos @@ Float f }
-  | s = STRING                                                    { mk_expr $startpos @@ String s }
-  | c = CHAR                                                      { mk_expr $startpos @@ Char c }
-  | id = path                                                     { mk_expr $startpos @@ Let id }
-  | MINUS e = expr_no_struct %prec UMINUS                         { mk_expr $startpos @@ Neg e }
-  | BANG e = expr_no_struct %prec UMINUS                          { mk_expr $startpos @@ Not e }
-  | AMP e = expr_simple_no_struct                                 { mk_expr $startpos @@ Ref e }
-  | STAR e = expr_simple_no_struct                                { mk_expr $startpos @@ Deref e }
-  | name = path LBRACKET idx = expr RBRACKET                      { mk_expr $startpos @@ ArrayAccess (name, idx) }
-  | id = path LPAREN args = separated_list(COMMA, expr) RPAREN    { mk_expr $startpos @@ Call(id, [], args) }
+  | TRUE                                                          { mk_expr $startpos $endpos @@ Bool true }
+  | FALSE                                                         { mk_expr $startpos $endpos @@ Bool false }
+  | n = INT                                                       { mk_expr $startpos $endpos @@ Int n }
+  | f = FLOAT                                                     { mk_expr $startpos $endpos @@ Float f }
+  | s = STRING                                                    { mk_expr $startpos $endpos @@ String s }
+  | c = CHAR                                                      { mk_expr $startpos $endpos @@ Char c }
+  | id = path                                                     { mk_expr $startpos $endpos @@ Let id }
+  | MINUS e = expr_no_struct %prec UMINUS                         { mk_expr $startpos $endpos @@ Neg e }
+  | BANG e = expr_no_struct %prec UMINUS                          { mk_expr $startpos $endpos @@ Not e }
+  | AMP e = expr_simple_no_struct                                 { mk_expr $startpos $endpos @@ Ref e }
+  | STAR e = expr_simple_no_struct                                { mk_expr $startpos $endpos @@ Deref e }
+  | name = path LBRACKET idx = expr RBRACKET                      { mk_expr $startpos $endpos @@ ArrayAccess (name, idx) }
+  | id = path LPAREN args = separated_list(COMMA, expr) RPAREN    { mk_expr $startpos $endpos @@ Call(id, [], args) }
   | e = expr_no_struct LT targs = separated_list(COMMA, types) GT LPAREN args = separated_list(COMMA, expr) RPAREN
     { attach_generic_call e targs args }
-  | LPAREN e = expr_no_struct COMMA rest = separated_nonempty_list(COMMA, expr) RPAREN { mk_expr $startpos @@ Tuple (e :: rest) }
-  | FN LPAREN RPAREN ty = types body = block { mk_expr $startpos @@ AnonFN([], ty, body) }
-  | FN LPAREN params = separated_nonempty_list(COMMA, param) RPAREN ty = types body = block { mk_expr $startpos @@ AnonFN(params, ty, body) }
+  | LPAREN e = expr_no_struct COMMA rest = separated_nonempty_list(COMMA, expr) RPAREN { mk_expr $startpos $endpos @@ Tuple (e :: rest) }
+  | FN LPAREN RPAREN ty = types body = block { mk_expr $startpos $endpos @@ AnonFN([], ty, body) }
+  | FN LPAREN params = separated_nonempty_list(COMMA, param) RPAREN ty = types body = block { mk_expr $startpos $endpos @@ AnonFN(params, ty, body) }
 
 expr_no_struct:
   | e = expr_simple_no_struct                     { e }
-  | l = expr_no_struct PLUS  r = expr_no_struct   { mk_expr $startpos @@ Add (l, r) }
-  | l = expr_no_struct MINUS r = expr_no_struct   { mk_expr $startpos @@ Sub (l, r) }
-  | l = expr_no_struct STAR  r = expr_no_struct   { mk_expr $startpos @@ Mul (l, r) }
-  | l = expr_no_struct SLASH r = expr_no_struct   { mk_expr $startpos @@ Div (l, r) }
-  | l = expr_no_struct MOD   r = expr_no_struct   { mk_expr $startpos @@ Mod (l, r) }
-  | l = expr_no_struct EQEQ  r = expr_no_struct   { mk_expr $startpos @@ Eq (l, r) }
-  | l = expr_no_struct LT    r = expr_no_struct   { mk_expr $startpos @@ Lt (l, r) }
-  | l = expr_no_struct LTE   r = expr_no_struct   { mk_expr $startpos @@ Lte (l, r) }
-  | l = expr_no_struct GT    r = expr_no_struct   { mk_expr $startpos @@ Gt (l, r) }
-  | l = expr_no_struct GTE   r = expr_no_struct   { mk_expr $startpos @@ Gte (l, r) }
-  | l = expr_no_struct AND   r = expr_no_struct   { mk_expr $startpos @@ And (l, r) }
-  | l = expr_no_struct OR    r = expr_no_struct   { mk_expr $startpos @@ Or (l, r) }
-  | stmt_if { mk_expr $startpos $1 }
+  | l = expr_no_struct PLUS  r = expr_no_struct   { mk_expr $startpos $endpos @@ Add (l, r) }
+  | l = expr_no_struct MINUS r = expr_no_struct   { mk_expr $startpos $endpos @@ Sub (l, r) }
+  | l = expr_no_struct STAR  r = expr_no_struct   { mk_expr $startpos $endpos @@ Mul (l, r) }
+  | l = expr_no_struct SLASH r = expr_no_struct   { mk_expr $startpos $endpos @@ Div (l, r) }
+  | l = expr_no_struct MOD   r = expr_no_struct   { mk_expr $startpos $endpos @@ Mod (l, r) }
+  | l = expr_no_struct EQEQ  r = expr_no_struct   { mk_expr $startpos $endpos @@ Eq (l, r) }
+  | l = expr_no_struct LT    r = expr_no_struct   { mk_expr $startpos $endpos @@ Lt (l, r) }
+  | l = expr_no_struct LTE   r = expr_no_struct   { mk_expr $startpos $endpos @@ Lte (l, r) }
+  | l = expr_no_struct GT    r = expr_no_struct   { mk_expr $startpos $endpos @@ Gt (l, r) }
+  | l = expr_no_struct GTE   r = expr_no_struct   { mk_expr $startpos $endpos @@ Gte (l, r) }
+  | l = expr_no_struct AND   r = expr_no_struct   { mk_expr $startpos $endpos @@ And (l, r) }
+  | l = expr_no_struct OR    r = expr_no_struct   { mk_expr $startpos $endpos @@ Or (l, r) }
+  | stmt_if { mk_expr $startpos $endpos $1 }
 

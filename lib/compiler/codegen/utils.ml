@@ -89,19 +89,22 @@ let get_builtin_id () =
   id
 
 let mk_expr (n : expr_node) : expr =
+  let loc =
+    { line = 0; col = 0; end_line = 0; end_col = 0; file = "<builtin>" }
+  in
   {
     id = get_builtin_id ();
-    loc = { line = 0; col = 0; file = "<builtin>" };
+    loc;
     node = n;
     inferred_type = ref None;
+    resolved_def_id = ref None;
   }
 
 let mk_stmt (n : stmt_node) : stmt =
-  {
-    id = get_builtin_id ();
-    loc = { line = 0; col = 0; file = "<builtin>" };
-    node = n;
-  }
+  let loc =
+    { line = 0; col = 0; end_line = 0; end_col = 0; file = "<builtin>" }
+  in
+  { id = get_builtin_id (); loc; node = n; docstring = None }
 
 let mk_error (loc : loc) msg =
   Error (Printf.sprintf "%s:%d:%d: %s" loc.file loc.line loc.col msg)
