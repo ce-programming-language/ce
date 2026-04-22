@@ -7,8 +7,9 @@ open Llvm_target
 
 let read file = In_channel.with_open_text file In_channel.input_all
 
-let parse src =
+let parse filepath src =
   let lexbuf = Lexing.from_string src in
+  Lexing.set_filename lexbuf filepath;
   try Parser.prog Lexer.tokenize lexbuf
   with Parser.Error ->
     let pos = lexbuf.lex_curr_p in
@@ -103,7 +104,7 @@ let rec process_file_inner visited filepath namespace_prefix =
   else begin
     Hashtbl.add visited filepath true;
     let src = read filepath in
-    let ast = parse src in
+    let ast = parse filepath src in
     let decls =
       List.fold_left
         (fun acc stmt ->

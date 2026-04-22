@@ -11,7 +11,7 @@ module type EXPR = sig
   val codegen_expr : compiler_env -> expr -> llvalue
 
   val coerce_value :
-    compiler_env -> lltype -> llvalue -> bool -> bool -> llvalue
+    compiler_env -> loc -> lltype -> llvalue -> bool -> bool -> llvalue
 end
 
 module type STMT = sig

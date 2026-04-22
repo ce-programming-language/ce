@@ -8,7 +8,7 @@ open Compiler_intf
 module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
   exception Error of string
 
-  let rec coerce_value env expected_ll_ty raw_val is_unsigned_target
+  let rec coerce_value env loc expected_ll_ty raw_val is_unsigned_target
       is_unsigned_source =
     let raw_ty = type_of raw_val in
 
@@ -23,7 +23,9 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
              if bw <= 64 then
                let sign_bit = Int64.shift_left 1L (bw - 1) in
                if Int64.logand v sign_bit <> 0L then
-                 raise (Error "Cannot assign negative value to unsigned type")
+                 raise
+                   (Utils.mk_error loc
+                      "Cannot assign negative value to unsigned type")
                else false
              else true
          | None -> true
@@ -125,7 +127,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
         position_at_end ok_bb ce_builder;
         let ok_val = build_extractvalue raw_val 1 "ok_val" ce_builder in
         let final_val =
-          coerce_value env expected_ll_ty ok_val is_unsigned_target false
+          coerce_value env loc expected_ll_ty ok_val is_unsigned_target false
         in
         let final_ok_bb = insertion_block ce_builder in
         ignore (build_br merge_bb ce_builder);
@@ -202,7 +204,8 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
         let array_ptr_val, array_ty =
           match Hashtbl.find_opt env.named_values name with
           | Some (v, ty, _) -> (v, ty)
-          | None -> raise (Error ("Array '" ^ name ^ "' not found"))
+          | None ->
+              raise (Utils.mk_error e.loc ("Array '" ^ name ^ "' not found"))
         in
         let llvm_array_ty = Types.llvm_type_of env array_ty in
 
@@ -277,12 +280,12 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                                   extract next_val next_ty rest
                                 with Not_found ->
                                   raise
-                                    (Error
+                                    (Utils.mk_error e.loc
                                        ("Unknown property '" ^ prop
                                       ^ "' on struct '" ^ clean_name ^ "'")))
                             | None ->
                                 raise
-                                  (Error
+                                  (Utils.mk_error e.loc
                                      ("Could not find struct definition for '"
                                     ^ clean_name ^ "'")))
                         | None -> (
@@ -291,7 +294,8 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                               let elems = struct_element_types current_ty in
                               if idx < 0 || idx >= Array.length elems then
                                 raise
-                                  (Error ("Tuple index out of bounds: " ^ prop));
+                                  (Utils.mk_error e.loc
+                                     ("Tuple index out of bounds: " ^ prop));
                               let next_val =
                                 build_extractvalue current_val idx "tupleelem"
                                   ce_builder
@@ -300,12 +304,12 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                               extract next_val next_ty rest
                             with Failure _ ->
                               raise
-                                (Error
+                                (Utils.mk_error e.loc
                                    ("Cannot access non-integer property '"
                                   ^ prop ^ "' on a tuple"))))
                     | _ ->
                         raise
-                          (Error
+                          (Utils.mk_error e.loc
                              ("Cannot access property '" ^ prop
                             ^ "' on non-struct type")))
               in
@@ -313,7 +317,10 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
           | None -> (
               match lookup_function env name ce_module with
               | Some f -> f
-              | None -> raise (Error ("Unknown variable or function: " ^ name)))
+              | None ->
+                  raise
+                    (Utils.mk_error e.loc
+                       ("Unknown variable or function: " ^ name)))
         else
           begin match Hashtbl.find_opt env.named_values name with
           | Some (v, ast_ty, _) ->
@@ -321,7 +328,10 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
           | None -> (
               match lookup_function env name ce_module with
               | Some f -> f
-              | None -> raise (Error ("Unknown variable or function: " ^ name)))
+              | None ->
+                  raise
+                    (Utils.mk_error e.loc
+                       ("Unknown variable or function: " ^ name)))
           end
     | Call (name, targs, args) -> (
         match Builtin.get name with
@@ -344,7 +354,8 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                 let arg_vals =
                   List.mapi
                     (fun i arg ->
-                      (coerce_value env expected_tys.(i) (codegen_expr env arg))
+                      (coerce_value env e.loc expected_tys.(i)
+                         (codegen_expr env arg))
                         false false)
                     args
                 in
@@ -361,7 +372,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                     let arg_vals =
                       List.mapi
                         (fun i arg ->
-                          (coerce_value env expected_tys.(i)
+                          (coerce_value env e.loc expected_tys.(i)
                              (codegen_expr env arg))
                             false false)
                         args
@@ -410,7 +421,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                           let arg_vals =
                             List.mapi
                               (fun i arg ->
-                                (coerce_value env expected_tys.(i)
+                                (coerce_value env e.loc expected_tys.(i)
                                    (codegen_expr env arg))
                                   false false)
                               args
@@ -420,10 +431,10 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                             if ret_ty = TVoid then "" else "fnptr_calltmp"
                           in
                           build_call ft fn_ptr_raw all_args call_name ce_builder
-                      | _ -> raise (Error "Unreachable")
+                      | _ -> raise (Utils.mk_error e.loc "Unreachable")
                     else if Hashtbl.mem env.fn_templates name then
                       raise
-                        (Error
+                        (Utils.mk_error e.loc
                            ("Function '" ^ name
                           ^ "' is generic and requires type arguments (e.g., "
                           ^ name ^ "[int]())"))
@@ -442,7 +453,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                           | Some c -> c
                           | None ->
                               raise
-                                (Error
+                                (Utils.mk_error e.loc
                                    ("Unknown method '" ^ method_name
                                   ^ "' on struct '" ^ base_path ^ "'"))
                         in
@@ -453,7 +464,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                         let arg_vals =
                           List.mapi
                             (fun i arg ->
-                              (coerce_value env expected_tys.(i)
+                              (coerce_value env e.loc expected_tys.(i)
                                  (codegen_expr env arg))
                                 false false)
                             args
@@ -469,7 +480,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                           try codegen_expr env (Utils.mk_expr @@ Let base_path)
                           with Error _ ->
                             raise
-                              (Error
+                              (Utils.mk_error e.loc
                                  ("Unknown function or method: '" ^ name ^ "'"))
                         in
                         let self_ty_llvm = type_of self_val in
@@ -498,7 +509,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                                 else s_name
                             | None ->
                                 raise
-                                  (Error
+                                  (Utils.mk_error e.loc
                                      ("Cannot call method '" ^ method_name
                                     ^ "' on a non-struct type")))
                         in
@@ -509,7 +520,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                           | Some c -> c
                           | None ->
                               raise
-                                (Error
+                                (Utils.mk_error e.loc
                                    ("Unknown method '" ^ method_name
                                   ^ "' on type '" ^ clean_name ^ "'"))
                         in
@@ -557,13 +568,13 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                             build_load actual_struct_ty self_val "deref_self"
                               ce_builder
                           else
-                            coerce_value env expected_self_ty self_val false
-                              false
+                            coerce_value env e.loc expected_self_ty self_val
+                              false false
                         in
                         let arg_vals =
                           List.mapi
                             (fun i arg ->
-                              (coerce_value env
+                              (coerce_value env e.loc
                                  expected_tys.(i + 1)
                                  (codegen_expr env arg))
                                 false false)
@@ -577,7 +588,9 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                           else "methodcalltmp"
                         in
                         build_call ft callee all_args call_name ce_builder
-                    else raise (Error ("Unknown function: " ^ name)))))
+                    else
+                      raise (Utils.mk_error e.loc ("Unknown function: " ^ name))
+                )))
     | If (cond, then_body, elif_branches, else_body) ->
         let the_function = block_parent (insertion_block ce_builder) in
         let merge_bb = append_block ce_ctx "ifcont" the_function in
@@ -749,13 +762,15 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                   in
                   build_call ft fn_ptr_raw [| env_ptr; err_str |] call_name
                     ce_builder
-              | _ -> raise (Error "Catch handler must be a function"))
+              | _ ->
+                  raise
+                    (Utils.mk_error e.loc "Catch handler must be a function"))
         in
 
         let catch_val =
           if expected_ll_ty = void_type ce_ctx then
             const_null (void_type ce_ctx)
-          else coerce_value env expected_ll_ty catch_val_raw false false
+          else coerce_value env e.loc expected_ll_ty catch_val_raw false false
         in
 
         let err_end_bb = insertion_block ce_builder in
@@ -892,7 +907,10 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
               in
               ignore (build_ret s1 ce_builder)
             end
-            else raise (Error "Anonymous function missing a return statement"));
+            else
+              raise
+                (Utils.mk_error e.loc
+                   "Anonymous function missing a return statement"));
 
         Hashtbl.clear env.named_values;
         Hashtbl.iter
@@ -921,7 +939,8 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
             try Hashtbl.find env.named_values base_name
             with Not_found ->
               raise
-                (Error ("Cannot reference unknown variable: '" ^ base_name ^ "'"))
+                (Utils.mk_error e.loc
+                   ("Cannot reference unknown variable: '" ^ base_name ^ "'"))
           in
           let is_ptr, base_struct_ast_ty =
             match ast_ty with TPointer t -> (true, t) | t -> (false, t)
@@ -941,8 +960,11 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
             let ptr_val, _, _ = Hashtbl.find env.named_values name in
             ptr_val
           with Not_found ->
-            raise (Error ("Cannot reference unknown variable: '" ^ name ^ "'")))
-    | Ref _ -> raise (Error "Can only reference variables (e.g., &a)")
+            raise
+              (Utils.mk_error e.loc
+                 ("Cannot reference unknown variable: '" ^ name ^ "'")))
+    | Ref _ ->
+        raise (Utils.mk_error e.loc "Can only reference variables (e.g., &a)")
     | Deref e ->
         let ptr_val = codegen_expr env e in
         let ptr_ast_ty = infer_ast_type env e in
@@ -950,7 +972,10 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
           match ptr_ast_ty with
           | TPointer t -> t
           | TString -> TChar
-          | _ -> raise (Error "Cannot dereference non-pointer expression")
+          | _ ->
+              raise
+                (Utils.mk_error e.loc
+                   "Cannot dereference non-pointer expression")
         in
         build_load
           (Types.llvm_type_of env inner_ty)
@@ -1020,7 +1045,9 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
         let v = codegen_expr env e in
         if type_of v = i1_type ce_ctx then build_not v "nottmp" ce_builder
         else
-          raise (Error "NOT operator (!) can only be applied to boolean values")
+          raise
+            (Utils.mk_error e.loc
+               "NOT operator (!) can only be applied to boolean values")
     | Array (n, ty, elems) ->
         let arr_ty = array_type (Types.llvm_type_of env ty) n in
         let alloc = build_alloca arr_ty "arrtmp" ce_builder in
@@ -1049,7 +1076,8 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
           try Hashtbl.find env.struct_registry mangled_name
           with Not_found ->
             raise
-              (Error ("Cannot find struct '" ^ name ^ "' for instantiation"))
+              (Utils.mk_error e.loc
+                 ("Cannot find struct '" ^ name ^ "' for instantiation"))
         in
         let alloc = build_alloca llty "structtmp" ce_builder in
         ignore (build_store (const_null llty) alloc ce_builder);
@@ -1063,7 +1091,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
             let expected_ty = (struct_element_types llty).(fidx) in
             let raw_val = codegen_expr env fexpr in
             let val_to_store =
-              coerce_value env expected_ty raw_val false false
+              coerce_value env e.loc expected_ty raw_val false false
             in
             ignore (build_store val_to_store fptr ce_builder))
           fields;

@@ -31,7 +31,9 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         in
         if is_result then
           ignore
-            (Expr.coerce_value env (struct_element_types ty).(1) v false false);
+            (Expr.coerce_value env s.loc
+               (struct_element_types ty).(1)
+               v false false);
         const_null (void_type ce_ctx)
     | DefLet (name, ismut, ty, expr_opt) ->
         let raw_val_opt, inferred_ty =
@@ -43,7 +45,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                   let inferred = infer_ast_type env e in
                   if inferred = TUnknown then
                     raise
-                      (Error
+                      (Utils.mk_error e.loc
                          ("Cannot infer type for variable '" ^ name
                         ^ "'. Please specify the type explicitly."))
                   else match inferred with TResult t -> t | _ -> inferred
@@ -53,7 +55,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           | None ->
               if ty = TUnknown then
                 raise
-                  (Error
+                  (Utils.mk_error s.loc
                      ("Cannot infer type for '" ^ name
                     ^ "' without initialization"));
               (None, ty)
@@ -65,7 +67,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           | Some raw_val ->
               let src_ty = infer_ast_type env (Option.get expr_opt) in
               let is_src_u = is_unsigned src_ty in
-              Expr.coerce_value env ll_ty raw_val false is_src_u
+              Expr.coerce_value env s.loc ll_ty raw_val false is_src_u
           | None -> const_null ll_ty
         in
         let the_function = block_parent (insertion_block ce_builder) in
@@ -135,7 +137,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
               end
               else
                 raise
-                  (Error
+                  (Utils.mk_error s.loc
                      ("Function '" ^ name ^ "' is missing a return statement")));
 
           Hashtbl.clear env.named_values;
@@ -243,7 +245,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                       in
                       if rest = [] && not is_mut then
                         raise
-                          (Error
+                          (Utils.mk_error s.loc
                              ("Cannot assign to immutable field '" ^ prop
                             ^ "' on struct '" ^ clean_name ^ "'"));
                       let next_ptr =
@@ -268,18 +270,20 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
             let v, ast_ty, ismut =
               try Hashtbl.find env.named_values name
               with Not_found ->
-                raise (Error ("Unknown variable: '" ^ name ^ "'"))
+                raise
+                  (Utils.mk_error s.loc ("Unknown variable: '" ^ name ^ "'"))
             in
             if not ismut then
               raise
-                (Error ("Cannot assign to immutable variable '" ^ name ^ "'"));
+                (Utils.mk_error s.loc
+                   ("Cannot assign to immutable variable '" ^ name ^ "'"));
 
             (v, Types.llvm_type_of env ast_ty, is_unsigned ast_ty)
         in
         let src_ty = infer_ast_type env expr in
         let is_src_u = is_unsigned src_ty in
         let val_to_store =
-          Expr.coerce_value env expected_ll_ty val_ is_u is_src_u
+          Expr.coerce_value env s.loc expected_ll_ty val_ is_u is_src_u
         in
         ignore (build_store val_to_store var_ptr ce_builder);
         val_to_store
@@ -289,10 +293,13 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           | Some (v, ty, ismut) ->
               if not ismut then
                 raise
-                  (Error ("Cannot assign to immutable array '" ^ name ^ "'"));
+                  (Utils.mk_error s.loc
+                     ("Cannot assign to immutable array '" ^ name ^ "'"));
               (v, ty)
           | None ->
-              raise (Error ("Array '" ^ name ^ "' not found for assignment"))
+              raise
+                (Utils.mk_error s.loc
+                   ("Array '" ^ name ^ "' not found for assignment"))
         in
 
         let idx_val = Expr.codegen_expr env index_expr in
@@ -317,7 +324,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           | TString -> TChar
           | _ ->
               raise
-                (Error
+                (Utils.mk_error s.loc
                    "Left-hand side of dereference assignment must be a pointer")
         in
 
@@ -325,7 +332,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         let src_ty = infer_ast_type env val_expr in
         let is_src_u = is_unsigned src_ty in
         let val_to_store =
-          Expr.coerce_value env
+          Expr.coerce_value env s.loc
             (Types.llvm_type_of env expected_ast_ty)
             raw_val
             (is_unsigned expected_ast_ty)
@@ -512,7 +519,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         const_null (void_type ce_ctx)
     | Break ->
         if Stack.is_empty env.loop_exit_blocks then
-          raise (Error "Break outside of a loop");
+          raise (Utils.mk_error s.loc "Break outside of a loop");
         let exit_block = Stack.top env.loop_exit_blocks in
         ignore (build_br exit_block ce_builder);
         const_null (void_type ce_ctx)

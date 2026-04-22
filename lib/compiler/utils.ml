@@ -86,3 +86,6 @@ let mk_expr (n : expr_node) : expr =
 
 let mk_stmt (n : stmt_node) : stmt =
   { loc = { line = 0; col = 0; file = "<builtin>" }; node = n }
+
+let mk_error (loc : loc) msg =
+  Error (Printf.sprintf "%s:%d:%d: %s" loc.file loc.line loc.col msg)
