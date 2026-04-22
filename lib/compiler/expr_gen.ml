@@ -191,7 +191,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
         end
         else raw_val
 
-  and codegen_expr env (e : expr) =
+  and codegen env (e : expr) =
     match e.node with
     | Void -> const_null (void_type ce_ctx)
     | Nil -> const_null (pointer_type ce_ctx)
@@ -209,7 +209,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
         in
         let llvm_array_ty = Types.llvm_type_of env array_ty in
 
-        let idx_val = codegen_expr env index_expr in
+        let idx_val = codegen env index_expr in
         let zero = const_int (i32_type ce_ctx) 0 in
         let indices = [| zero; idx_val |] in
         let element_ptr =
@@ -336,11 +336,11 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
     | Call (name, targs, args) -> (
         match Builtin.get name with
         | Some builtin_fn ->
-            let arg_vals = List.map (codegen_expr env) args in
+            let arg_vals = List.map (codegen env) args in
             let targ_lltypes = List.map (Types.llvm_type_of env) targs in
             let arg_asts = List.map (Infer.infer_ast_type env) args in
             builtin_fn ce_ctx ce_module ce_builder name arg_vals targ_lltypes
-              arg_asts targs (codegen_expr env) (Types.llvm_type_of env)
+              arg_asts targs (codegen env) (Types.llvm_type_of env)
               (Infer.infer_ast_type env)
         | None -> (
             let target_name =
@@ -354,8 +354,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                 let arg_vals =
                   List.mapi
                     (fun i arg ->
-                      (coerce_value env e.loc expected_tys.(i)
-                         (codegen_expr env arg))
+                      (coerce_value env e.loc expected_tys.(i) (codegen env arg))
                         false false)
                     args
                 in
@@ -373,7 +372,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                       List.mapi
                         (fun i arg ->
                           (coerce_value env e.loc expected_tys.(i)
-                             (codegen_expr env arg))
+                             (codegen env arg))
                             false false)
                         args
                     in
@@ -395,9 +394,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                     in
 
                     if is_fn_var then
-                      let fn_val =
-                        codegen_expr env (Utils.mk_expr @@ Let name)
-                      in
+                      let fn_val = codegen env (Utils.mk_expr @@ Let name) in
                       let fn_ast_ty =
                         Infer.infer_ast_type env (Utils.mk_expr @@ Let name)
                       in
@@ -422,7 +419,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                             List.mapi
                               (fun i arg ->
                                 (coerce_value env e.loc expected_tys.(i)
-                                   (codegen_expr env arg))
+                                   (codegen env arg))
                                   false false)
                               args
                           in
@@ -465,7 +462,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                           List.mapi
                             (fun i arg ->
                               (coerce_value env e.loc expected_tys.(i)
-                                 (codegen_expr env arg))
+                                 (codegen env arg))
                                 false false)
                             args
                         in
@@ -477,7 +474,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                         build_call ft callee args_val call_name ce_builder
                       else
                         let self_val =
-                          try codegen_expr env (Utils.mk_expr @@ Let base_path)
+                          try codegen env (Utils.mk_expr @@ Let base_path)
                           with Error _ ->
                             raise
                               (Utils.mk_error e.loc
@@ -576,7 +573,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                             (fun i arg ->
                               (coerce_value env e.loc
                                  expected_tys.(i + 1)
-                                 (codegen_expr env arg))
+                                 (codegen env arg))
                                 false false)
                             args
                         in
@@ -597,9 +594,9 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
         let cb_yield stmts =
           let rec aux = function
             | [] -> const_null (void_type ce_ctx)
-            | [ { node = Expr e; _ } ] -> codegen_expr env e
+            | [ { node = Expr e; _ } ] -> codegen env e
             | s :: rest ->
-                ignore (Stmt.codegen_stmt env s);
+                ignore (Stmt.codegen env s);
                 aux rest
           in
           aux stmts
@@ -607,7 +604,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
 
         let phi_incoming = ref [] in
         let rec build_if c body rest_elifs else_b =
-          let cond_val = codegen_expr env c in
+          let cond_val = codegen env c in
           let then_bb = append_block ce_ctx "then" the_function in
           let next_bb = append_block ce_ctx "else_or_elif" the_function in
 
@@ -650,7 +647,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
           else build_phi incoming "iftmp" ce_builder
         end
     | Catch (expr, err_name, catch_ty, body) ->
-        let res_val = codegen_expr env expr in
+        let res_val = codegen env expr in
         let is_err = build_extractvalue res_val 0 "is_err" ce_builder in
 
         let the_func = block_parent (insertion_block ce_builder) in
@@ -675,8 +672,8 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
 
         List.iter
           (function
-            | { node = Return e } -> catch_val := codegen_expr env e
-            | s -> ignore (Stmt.codegen_stmt env s))
+            | { node = Return e } -> catch_val := codegen env e
+            | s -> ignore (Stmt.codegen env s))
           body;
 
         Hashtbl.remove env.named_values err_name;
@@ -708,7 +705,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
             "catch_res" ce_builder
         else ok_val
     | CatchExpr (expr, handler) ->
-        let res_val = codegen_expr env expr in
+        let res_val = codegen env expr in
         let is_err = build_extractvalue res_val 0 "is_err" ce_builder in
 
         let expected_ast_ty =
@@ -725,7 +722,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
         position_at_end err_bb ce_builder;
 
         let err_str = build_extractvalue res_val 2 "err_str" ce_builder in
-        let handler_val = codegen_expr env handler in
+        let handler_val = codegen env handler in
 
         let catch_val_raw =
           match handler with
@@ -891,7 +888,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
             end)
           (Llvm.params f);
 
-        Stmt.codegen_block env body;
+        Stmt.gen_block env body;
 
         let current_bb = insertion_block ce_builder in
         (match block_terminator current_bb with
@@ -966,7 +963,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
     | Ref _ ->
         raise (Utils.mk_error e.loc "Can only reference variables (e.g., &a)")
     | Deref e ->
-        let ptr_val = codegen_expr env e in
+        let ptr_val = codegen env e in
         let ptr_ast_ty = infer_ast_type env e in
         let inner_ty =
           match ptr_ast_ty with
@@ -981,68 +978,67 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
           (Types.llvm_type_of env inner_ty)
           ptr_val "dereftmp" ce_builder
     | Add (l, r) ->
-        let lv, rv = (codegen_expr env l, codegen_expr env r) in
+        let lv, rv = (codegen env l, codegen env r) in
         if classify_type (type_of lv) = TypeKind.Pointer then
           build_ptr_arith lv rv build_add "addptr"
         else if classify_type (type_of rv) = TypeKind.Pointer then
           build_ptr_arith rv lv build_add "addptr"
         else build_numeric_op lv rv build_add build_fadd "addtmp"
     | Sub (l, r) ->
-        let lv, rv = (codegen_expr env l, codegen_expr env r) in
+        let lv, rv = (codegen env l, codegen env r) in
         if classify_type (type_of lv) = TypeKind.Pointer then
           build_ptr_arith lv rv build_sub "subptr"
         else build_numeric_op lv rv build_sub build_fsub "subtmp"
     | Mul (l, r) ->
-        let lv, rv = (codegen_expr env l, codegen_expr env r) in
+        let lv, rv = (codegen env l, codegen env r) in
         build_numeric_op lv rv build_mul build_fmul "multmp"
     | Div (l, r) ->
-        let lv, rv = (codegen_expr env l, codegen_expr env r) in
+        let lv, rv = (codegen env l, codegen env r) in
         build_numeric_op lv rv
           (if is_unsigned (infer_ast_type env l) then build_udiv else build_sdiv)
           build_fdiv "divtmp"
     | Mod (l, r) ->
-        let lv, rv = (codegen_expr env l, codegen_expr env r) in
+        let lv, rv = (codegen env l, codegen env r) in
         build_numeric_op lv rv
           (if is_unsigned (infer_ast_type env l) then build_urem else build_srem)
           build_frem "modtmp"
     | Eq (l, r) ->
-        let lv, rv = (codegen_expr env l, codegen_expr env r) in
+        let lv, rv = (codegen env l, codegen env r) in
         build_numeric_op lv rv (build_icmp Icmp.Eq) (build_fcmp Fcmp.Oeq)
           "eqtmp"
     | Lt (l, r) ->
-        let lv, rv = (codegen_expr env l, codegen_expr env r) in
+        let lv, rv = (codegen env l, codegen env r) in
         build_numeric_op lv rv
           (build_icmp
              (if is_unsigned (infer_ast_type env l) then Icmp.Ult else Icmp.Slt))
           (build_fcmp Fcmp.Olt) "lttmp"
     | Lte (l, r) ->
-        let lv, rv = (codegen_expr env l, codegen_expr env r) in
+        let lv, rv = (codegen env l, codegen env r) in
         build_numeric_op lv rv
           (build_icmp
              (if is_unsigned (infer_ast_type env l) then Icmp.Ule else Icmp.Sle))
           (build_fcmp Fcmp.Ole) "ltetmp"
     | Gt (l, r) ->
-        let lv, rv = (codegen_expr env l, codegen_expr env r) in
+        let lv, rv = (codegen env l, codegen env r) in
         build_numeric_op lv rv
           (build_icmp
              (if is_unsigned (infer_ast_type env l) then Icmp.Ugt else Icmp.Sgt))
           (build_fcmp Fcmp.Ogt) "gttmp"
     | Gte (l, r) ->
-        let lv, rv = (codegen_expr env l, codegen_expr env r) in
+        let lv, rv = (codegen env l, codegen env r) in
         build_numeric_op lv rv
           (build_icmp
              (if is_unsigned (infer_ast_type env l) then Icmp.Uge else Icmp.Sge))
           (build_fcmp Fcmp.Oge) "gtetmp"
     | And (l, r) ->
-        build_and (codegen_expr env l) (codegen_expr env r) "andtmp" ce_builder
-    | Or (l, r) ->
-        build_or (codegen_expr env l) (codegen_expr env r) "ortmp" ce_builder
+        build_and (codegen env l) (codegen env r) "andtmp" ce_builder
+    | Or (l, r) -> build_or (codegen env l) (codegen env r) "ortmp" ce_builder
     | Neg e ->
-        let v = codegen_expr env e in
+        let v = codegen env e in
         if type_of v = double_type ce_ctx then build_fneg v "fnegtmp" ce_builder
         else build_neg v "negtmp" ce_builder
     | Not e ->
-        let v = codegen_expr env e in
+        let v = codegen env e in
         if type_of v = i1_type ce_ctx then build_not v "nottmp" ce_builder
         else
           raise
@@ -1060,7 +1056,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
                 |]
                 "elemtmp" ce_builder
             in
-            ignore (build_store (codegen_expr env e) ptr ce_builder))
+            ignore (build_store (codegen env e) ptr ce_builder))
           elems;
         build_load arr_ty alloc "arrload" ce_builder
     | Struct (name, type_args, fields) ->
@@ -1089,7 +1085,7 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
             in
             let fptr = build_struct_gep llty alloc fidx "fieldptr" ce_builder in
             let expected_ty = (struct_element_types llty).(fidx) in
-            let raw_val = codegen_expr env fexpr in
+            let raw_val = codegen env fexpr in
             let val_to_store =
               coerce_value env e.loc expected_ty raw_val false false
             in
@@ -1098,13 +1094,13 @@ module Make (Types : TYPES) (Stmt : STMT) : EXPR = struct
 
         build_load llty alloc "structload" ce_builder
     | Tuple elems ->
-        let lltypes = List.map (fun e -> type_of (codegen_expr env e)) elems in
+        let lltypes = List.map (fun e -> type_of (codegen env e)) elems in
         let struct_ty = struct_type ce_ctx (Array.of_list lltypes) in
         let alloc = build_alloca struct_ty "tupletmp" ce_builder in
         List.iteri
           (fun i e ->
             ignore
-              (build_store (codegen_expr env e)
+              (build_store (codegen env e)
                  (build_struct_gep struct_ty alloc i "tupleelem" ce_builder)
                  ce_builder))
           elems;

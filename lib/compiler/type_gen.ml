@@ -85,7 +85,7 @@ module Make (Stmt : STMT) : TYPES = struct
             in
 
             ignore
-              (Stmt.codegen_stmt env
+              (Stmt.codegen env
                  (Utils.mk_stmt
                     (DefStruct (mangled_name, [], specialized_fields))));
 
@@ -113,7 +113,7 @@ module Make (Stmt : STMT) : TYPES = struct
                     methods
                 in
                 ignore
-                  (Stmt.codegen_stmt env
+                  (Stmt.codegen env
                      (Utils.mk_stmt
                         (Impl (mangled_name, [], specialized_methods))))
             | None -> ());
@@ -155,7 +155,7 @@ module Make (Stmt : STMT) : TYPES = struct
           in
 
           ignore
-            (Stmt.codegen_stmt env
+            (Stmt.codegen env
                (Utils.mk_stmt
                   (DefFN (mangled_name, [], sub_params, sub_ret_ty, sub_body))));
           (match saved_bb with

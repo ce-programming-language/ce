@@ -8,17 +8,17 @@ open Compiler_intf
 module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
   exception Error of string
 
-  let rec codegen_block env stmts =
+  let rec gen_block env stmts =
     List.iter
       (fun s ->
         if Option.is_none (block_terminator (insertion_block ce_builder)) then
-          ignore (codegen_stmt env s))
+          ignore (codegen env s))
       stmts
 
-  and codegen_stmt (env : State.compiler_env) (s : stmt) =
+  and codegen (env : State.compiler_env) (s : stmt) =
     match s.node with
     | Expr e ->
-        let v = Expr.codegen_expr env e in
+        let v = Expr.codegen env e in
         let ty = type_of v in
         let is_result =
           match classify_type ty with
@@ -39,7 +39,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         let raw_val_opt, inferred_ty =
           match expr_opt with
           | Some e ->
-              let raw_val = Expr.codegen_expr env e in
+              let raw_val = Expr.codegen env e in
               let deduced_ty =
                 if ty = TUnknown then
                   let inferred = infer_ast_type env e in
@@ -119,7 +119,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
               Hashtbl.add env.named_values n (alloca, p_ty, false))
             (Llvm.params f);
 
-          codegen_block env body;
+          gen_block env body;
 
           let current_bb = insertion_block ce_builder in
           (match block_terminator current_bb with
@@ -210,7 +210,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           const_null (void_type ce_ctx)
         end
     | Assign (name, expr) ->
-        let val_ = Expr.codegen_expr env expr in
+        let val_ = Expr.codegen env expr in
         let var_ptr, expected_ll_ty, is_u =
           if String.contains name '.' then
             let parts = String.split_on_char '.' name in
@@ -302,8 +302,8 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                    ("Array '" ^ name ^ "' not found for assignment"))
         in
 
-        let idx_val = Expr.codegen_expr env index_expr in
-        let val_to_store = Expr.codegen_expr env val_expr in
+        let idx_val = Expr.codegen env index_expr in
+        let val_to_store = Expr.codegen env val_expr in
 
         let zero = const_int (i32_type ce_ctx) 0 in
         let indices = [| zero; idx_val |] in
@@ -316,7 +316,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         ignore (build_store val_to_store element_ptr ce_builder);
         val_to_store
     | DerefAssign (ptr_expr, val_expr) ->
-        let actual_ptr = Expr.codegen_expr env ptr_expr in
+        let actual_ptr = Expr.codegen env ptr_expr in
         let ptr_ast_ty = infer_ast_type env ptr_expr in
         let expected_ast_ty =
           match ptr_ast_ty with
@@ -328,7 +328,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                    "Left-hand side of dereference assignment must be a pointer")
         in
 
-        let raw_val = Expr.codegen_expr env val_expr in
+        let raw_val = Expr.codegen env val_expr in
         let src_ty = infer_ast_type env val_expr in
         let is_src_u = is_unsigned src_ty in
         let val_to_store =
@@ -342,7 +342,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         ignore (build_store val_to_store actual_ptr ce_builder);
         val_to_store
     | Block stmts ->
-        codegen_block env stmts;
+        gen_block env stmts;
         const_null (void_type ce_ctx)
     | For (init, cond, mut, stmts) ->
         let is_foreach =
@@ -356,7 +356,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           | _ -> false
         in
         if is_foreach then
-          codegen_stmt env
+          codegen env
             (Utils.mk_stmt (ForEach (None, None, Option.get cond, stmts)))
         else begin
           let init_var_name =
@@ -364,7 +364,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
             | Some { node = DefLet (n, _, _, _) } -> Some n
             | _ -> None
           in
-          (match init with Some s -> ignore (codegen_stmt env s) | None -> ());
+          (match init with Some s -> ignore (codegen env s) | None -> ());
 
           let the_function = block_parent (insertion_block ce_builder) in
           let cond_bb = append_block ce_ctx "loop_cond" the_function in
@@ -377,20 +377,20 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           position_at_end cond_bb ce_builder;
           (match cond with
           | Some c ->
-              let cond_val = Expr.codegen_expr env c in
+              let cond_val = Expr.codegen env c in
               ignore (build_cond_br cond_val loop_bb after_bb ce_builder)
           | None -> ignore (build_br loop_bb ce_builder));
 
           position_at_end loop_bb ce_builder;
           Stack.push after_bb env.loop_exit_blocks;
 
-          codegen_block env stmts;
+          gen_block env stmts;
 
           if Option.is_none (block_terminator (insertion_block ce_builder)) then
             ignore (build_br mut_bb ce_builder);
 
           position_at_end mut_bb ce_builder;
-          (match mut with Some m -> ignore (codegen_stmt env m) | None -> ());
+          (match mut with Some m -> ignore (codegen env m) | None -> ());
 
           ignore (build_br cond_bb ce_builder);
 
@@ -404,7 +404,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           const_null (void_type ce_ctx)
         end
     | ForEach (idx_name_opt, val_name_opt, iter_expr, stmts) ->
-        let iter_val = Expr.codegen_expr env iter_expr in
+        let iter_val = Expr.codegen env iter_expr in
         let iter_ast_ty = infer_ast_type env iter_expr in
 
         let the_function = block_parent (insertion_block ce_builder) in
@@ -494,7 +494,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
             Hashtbl.add env.named_values val_name (val_alloc, elem_ast_ty, false)
         | None -> ());
 
-        codegen_block env stmts;
+        gen_block env stmts;
 
         (match idx_name_opt with
         | Some idx_name -> Hashtbl.remove env.named_values idx_name
@@ -524,7 +524,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         ignore (build_br exit_block ce_builder);
         const_null (void_type ce_ctx)
     | Return e ->
-        let v = Expr.codegen_expr env e in
+        let v = Expr.codegen env e in
         if !(env.current_fn_is_res) then begin
           let ret_ty = !(env.current_fn_ret_ty) in
           let s1 =
@@ -580,14 +580,14 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
               let self_param = { param_name = self_id; ty = self_ty } in
               let all_params = self_param :: m_params in
               ignore
-                (codegen_stmt env
+                (codegen env
                    (Utils.mk_stmt
                       (DefFN (mangled_name, [], all_params, ret_ty, body)))))
             methods;
           const_null (void_type ce_ctx)
         end
     | Raise e ->
-        let err_msg = Expr.codegen_expr env e in
+        let err_msg = Expr.codegen env e in
         let ret_ty = !(env.current_fn_ret_ty) in
         let s1 =
           build_insertvalue (const_null ret_ty)

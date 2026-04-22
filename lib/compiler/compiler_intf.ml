@@ -8,13 +8,13 @@ module type TYPES = sig
 end
 
 module type EXPR = sig
-  val codegen_expr : compiler_env -> expr -> llvalue
-
   val coerce_value :
     compiler_env -> loc -> lltype -> llvalue -> bool -> bool -> llvalue
+
+  val codegen : compiler_env -> expr -> llvalue
 end
 
 module type STMT = sig
-  val codegen_block : compiler_env -> stmt list -> unit
-  val codegen_stmt : compiler_env -> stmt -> llvalue
+  val gen_block : compiler_env -> stmt list -> unit
+  val codegen : compiler_env -> stmt -> llvalue
 end

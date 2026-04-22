@@ -22,5 +22,5 @@ let optimize the_module =
 
 let compile (stmts : stmt list) =
   let env = State.create_env ce_ctx in
-  List.iter (fun s -> ignore (Stmt.codegen_stmt env s)) stmts;
+  List.iter (fun s -> ignore (Stmt.codegen env s)) stmts;
   optimize ce_module
