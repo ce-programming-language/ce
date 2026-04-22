@@ -59,7 +59,6 @@ module Make () : TYPES = struct
             let saved_bb =
               try Some (insertion_block ce_builder) with Not_found -> None
             in
-
             let params, fields =
               try Hashtbl.find env.struct_templates name
               with Not_found ->
@@ -72,7 +71,6 @@ module Make () : TYPES = struct
                 (fun (p_name, _) arg_ty -> (p_name, arg_ty))
                 params arg_types
             in
-
             let specialized_fields =
               List.map
                 (fun f ->
@@ -84,9 +82,23 @@ module Make () : TYPES = struct
                 fields
             in
 
-            Queue.push
-              (Utils.mk_stmt (DefStruct (mangled_name, [], specialized_fields)))
-              env.pending_instantiations;
+            let struct_llty = named_struct_type ce_ctx mangled_name in
+            Hashtbl.add env.struct_registry mangled_name (struct_llty, []);
+
+            let field_types =
+              Array.of_list
+                (List.map (fun f -> llvm_type_of env f.ty) specialized_fields)
+            in
+            struct_set_body struct_llty field_types false;
+
+            let field_map =
+              List.mapi
+                (fun i f -> (f.field_name, i, f.is_mut, f.ty))
+                specialized_fields
+            in
+            Hashtbl.replace env.struct_registry mangled_name
+              (struct_llty, field_map);
+
             (match Hashtbl.find_opt env.impl_templates name with
             | Some (_, methods) ->
                 let specialized_methods =
@@ -94,20 +106,47 @@ module Make () : TYPES = struct
                     (fun (m_name, self_id, is_ptr, m_params, ret_ty, body) ->
                       let sub_params =
                         List.map
-                          (fun p ->
+                          (fun (p : param) ->
                             {
                               param_name = p.param_name;
                               ty = substitute_type type_map p.ty;
                             })
                           m_params
                       in
+                      let sub_ret_ty = substitute_type type_map ret_ty in
                       let sub_body = List.map (substitute_stmt type_map) body in
-                      ( m_name,
-                        self_id,
-                        is_ptr,
-                        sub_params,
-                        substitute_type type_map ret_ty,
-                        sub_body ))
+
+                      let mangled_method = mangled_name ^ "::" ^ m_name in
+                      let self_ty =
+                        if is_ptr then TPointer (TNamed mangled_name)
+                        else TNamed mangled_name
+                      in
+                      let all_sub_params =
+                        { param_name = self_id; ty = self_ty } :: sub_params
+                      in
+                      let param_types =
+                        Array.of_list
+                          (List.map
+                             (fun (p : param) -> llvm_type_of env p.ty)
+                             all_sub_params)
+                      in
+                      let ft =
+                        function_type (llvm_type_of env sub_ret_ty) param_types
+                      in
+                      Hashtbl.replace env.function_types mangled_method
+                        (ft, sub_ret_ty);
+                      let _ =
+                        match Llvm.lookup_function mangled_method ce_module with
+                        | Some existing -> existing
+                        | None ->
+                            let new_f =
+                              declare_function mangled_method ft ce_module
+                            in
+                            set_linkage Linkage.Internal new_f;
+                            new_f
+                      in
+
+                      (m_name, self_id, is_ptr, sub_params, sub_ret_ty, sub_body))
                     methods
                 in
                 Queue.push
@@ -147,6 +186,20 @@ module Make () : TYPES = struct
           in
           let sub_ret_ty = substitute_type type_map ret_ty in
           let sub_body = List.map (substitute_stmt type_map) body in
+          let param_types =
+            Array.of_list
+              (List.map (fun (p : param) -> llvm_type_of env p.ty) sub_params)
+          in
+          let ft = function_type (llvm_type_of env sub_ret_ty) param_types in
+          Hashtbl.replace env.function_types mangled_name (ft, sub_ret_ty);
+          let _ =
+            match Llvm.lookup_function mangled_name ce_module with
+            | Some existing -> existing
+            | None ->
+                let new_f = declare_function mangled_name ft ce_module in
+                set_linkage Linkage.Internal new_f;
+                new_f
+          in
           Queue.push
             (Utils.mk_stmt
                (DefFN (mangled_name, [], sub_params, sub_ret_ty, sub_body)))

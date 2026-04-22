@@ -415,7 +415,7 @@ module Make (Types : TYPES) : EXPR = struct
                         (Utils.mk_error e.loc
                            ("Function '" ^ name
                           ^ "' is generic and requires type arguments (e.g., "
-                          ^ name ^ "[int]())"))
+                          ^ name ^ "<int>())"))
                     else if String.contains name '.' then
                       let last_dot_idx = String.rindex name '.' in
                       let base_path = String.sub name 0 last_dot_idx in
