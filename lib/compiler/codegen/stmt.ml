@@ -3,7 +3,7 @@ open Ce_parser.Ast
 open State
 open Utils
 open Infer
-open Compiler_intf
+open Codegen
 
 module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
   exception Error of string

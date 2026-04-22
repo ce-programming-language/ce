@@ -1,10 +1,10 @@
 open Llvm
 open Llvm_target
 open Ce_parser.Ast
-open Compiler_intf
-module Types = Type_gen.Make ()
-module Expr = Expr_gen.Make (Types)
-module Stmt = Stmt_gen.Make (Types) (Expr)
+open Codegen
+module Types = Types.Make ()
+module Expr = Expr.Make (Types)
+module Stmt = Stmt.Make (Types) (Expr)
 
 let optimize the_module =
   ignore (Llvm_all_backends.initialize ());

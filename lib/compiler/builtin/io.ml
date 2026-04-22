@@ -1,6 +1,6 @@
 open Llvm
 open Ce_parser.Ast
-open Compiler_intf
+open Codegen
 
 let register context the_module builder registry =
   let get_printf context the_module =

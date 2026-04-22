@@ -89,3 +89,57 @@ let mk_stmt (n : stmt_node) : stmt =
 
 let mk_error (loc : loc) msg =
   Error (Printf.sprintf "%s:%d:%d: %s" loc.file loc.line loc.col msg)
+
+module ExprBuilder = struct
+  let gen_binary_op env op_type l_val r_val l_ty ce_builder ce_ctx =
+    let is_unsigned_ty =
+      match l_ty with TInt (_, Unsigned) -> true | _ -> false
+    in
+    match op_type with
+    | `Add ->
+        if
+          classify_type (type_of l_val) = TypeKind.Pointer
+          || classify_type (type_of r_val) = TypeKind.Pointer
+        then build_ptr_arith l_val r_val build_add "addptr"
+        else build_numeric_op l_val r_val build_add build_fadd "addtmp"
+    | `Sub ->
+        if classify_type (type_of l_val) = TypeKind.Pointer then
+          build_ptr_arith l_val r_val build_sub "subptr"
+        else build_numeric_op l_val r_val build_sub build_fsub "subtmp"
+    | `Mul -> build_numeric_op l_val r_val build_mul build_fmul "multmp"
+    | `Div ->
+        build_numeric_op l_val r_val
+          (if is_unsigned_ty then build_udiv else build_sdiv)
+          build_fdiv "divtmp"
+  (* Add other operators... *)
+  (* *)
+end
+
+module StmtBuilder = struct
+  let gen_return env ce_builder ce_ctx ret_val =
+    if !(env.current_fn_is_res) then
+      begin if type_of ret_val = void_type ce_ctx then
+        ignore (build_ret_void ce_builder)
+      else ignore (build_ret ret_val ce_builder)
+      end
+    else begin
+      let ret_ty = !(env.current_fn_ret_ty) in
+      let s1 =
+        build_insertvalue (const_null ret_ty)
+          (const_int (i1_type ce_ctx) 0)
+          0 "ok_flag" ce_builder
+      in
+      let s2 =
+        if type_of ret_val = void_type ce_ctx then s1
+        else build_insertvalue s1 ret_val 1 "ok_val" ce_builder
+      in
+      ignore (build_ret s2 ce_builder)
+    end;
+    const_null (void_type ce_ctx)
+  (* *)
+
+  let gen_assignment ce_builder expected_ll_ty var_ptr val_to_store =
+    ignore (build_store val_to_store var_ptr ce_builder);
+    val_to_store
+  (* *)
+end

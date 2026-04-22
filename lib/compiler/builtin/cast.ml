@@ -1,6 +1,6 @@
 open Llvm
 open Ce_parser.Ast
-open Compiler_intf
+open Codegen
 
 exception Error of string
 

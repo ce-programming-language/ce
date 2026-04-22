@@ -2,7 +2,7 @@ open Llvm
 open Ce_parser.Ast
 open State
 open Substitue
-open Compiler_intf
+open Codegen
 
 module Make () : TYPES = struct
   exception Error of string
