@@ -42,8 +42,9 @@ let cant_assign_immutable_field loc prop name =
   mk_error loc
     ("Cannot assign to immutable field '" ^ prop ^ "' on struct '" ^ name ^ "'")
 
-let unknown_var_fn loc name =
-  mk_error loc ("Unknown variable or function: '" ^ name ^ "'")
+let unknown_var_fn ?loc name =
+  let m = "Unknown variable or function: '" ^ name ^ "'" in
+  match loc with Some v -> mk_error v m | None -> Error m
 
 let unknown_prop loc prop name =
   mk_error loc ("Unknown property '" ^ prop ^ "' on struct '" ^ name ^ "'")
@@ -53,6 +54,10 @@ let unknown_method loc met name =
 
 let unknown_fn loc name =
   mk_error loc ("Unknown function or method: '" ^ name ^ "'")
+
+let unknown_type ?loc name =
+  let m = "Unknown type: '" ^ name ^ "'" in
+  match loc with Some v -> mk_error v m | None -> Error m
 
 let cant_assign_immutable_var loc name =
   mk_error loc ("Cannot assign to immutable variable '" ^ name ^ "'")
@@ -74,8 +79,9 @@ let cant_dereference_nonpointer loc =
 let cant_implicitly_cast loc =
   mk_error loc "Type mismatch: Could not implicitly cast value to expected type"
 
-let cant_find_struct loc name =
-  mk_error loc ("Could not find struct definition for '" ^ name ^ "'")
+let cant_find_struct ?loc name =
+  let m = "Could not find struct definition for '" ^ name ^ "'" in
+  match loc with Some v -> mk_error v m | None -> Error m
 
 let tuple_index_out_bounds loc prop =
   mk_error loc ("Tuple index out of bounds: " ^ prop)
@@ -83,7 +89,16 @@ let tuple_index_out_bounds loc prop =
 let cant_apply_operator loc operator =
   mk_error loc ("Cannot apply " ^ operator ^ " operator")
 
-let generic_requires_type loc name =
-  mk_error loc (name ^ "' is generic and requires type arguments")
+let generic_requires_type ?loc name =
+  let m = name ^ "' is generic and requires type arguments" in
+  match loc with Some v -> mk_error v m | None -> Error m
 
 let catch_handler_must_fn loc = mk_error loc "Catch handler must be a function"
+
+let expects_exactly_args name n =
+  Error (name ^ " expects exactly " ^ n ^ " argument(s)")
+
+let missing_import name =
+  Error
+    (Printf.sprintf
+       "Missing import: require `import %s` at the top of your file." name)

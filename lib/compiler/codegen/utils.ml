@@ -121,9 +121,6 @@ let mk_stmt (n : stmt_node) : stmt =
     mod_name = "main";
   }
 
-let mk_error (loc : loc) msg =
-  Error (Printf.sprintf "%s:%d:%d: %s" loc.file loc.line loc.col msg)
-
 let gen_panic env ctx module_ builder format_str arg_vals =
   let printf_ty = var_arg_function_type (i32_type ctx) [| pointer_type ctx |] in
   let printf_fn =

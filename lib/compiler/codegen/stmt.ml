@@ -291,7 +291,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           else
             let v, ast_ty, ismut =
               try Hashtbl.find env.named_values name
-              with Not_found -> raise (Error.unknown_var_fn s.loc name)
+              with Not_found -> raise (Error.unknown_var_fn ~loc:s.loc name)
             in
             if not ismut then raise (Error.cant_assign_immutable_var s.loc name);
             (v, Types.llvm_type_of env ast_ty, is_unsigned ast_ty)
@@ -310,7 +310,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
               if not ismut then
                 raise (Error.cant_assign_immutable_arr s.loc name);
               (v, ty)
-          | None -> raise (Error.unknown_var_fn s.loc name)
+          | None -> raise (Error.unknown_var_fn ~loc:s.loc name)
         in
 
         let idx_val = Expr.codegen env codegen index_expr in

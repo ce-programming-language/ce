@@ -1,12 +1,11 @@
 open Llvm
 open Ce_parser.Ast
 open Ce_parser.Ast_mapper
+open Ce_error
 open State
 open Codegen
 
 module Make () : TYPES = struct
-  exception Error of string
-
   let rec llvm_type_of env = function
     | TInt (size, _) -> (
         match size with
@@ -34,15 +33,14 @@ module Make () : TYPES = struct
                 | Some _ ->
                     struct_type ce_ctx
                       [| pointer_type ce_ctx; pointer_type ce_ctx |]
-                | None -> raise (Error ("Undefined type: " ^ name)))))
+                | None -> raise (Error.unknown_type name))))
     | TStruct name -> (
         try
           let llty, _, _ = Hashtbl.find env.struct_registry name in
           llty
-        with Not_found -> raise (Error ("Unknown struct '" ^ name ^ "'")))
-    | TUnknown -> raise (Error "Cannot compile unknown type")
-    | TGenericParam name ->
-        raise (Error ("Uninstantiated generic parameter '" ^ name))
+        with Not_found -> raise (Error.unknown_type name))
+    | TUnknown -> raise (Error.unknown_type "<unknown>")
+    | TGenericParam name -> raise (Error.generic_requires_type name)
     | TResult ty ->
         let inner = llvm_type_of env ty in
         let ok_ty =
@@ -63,14 +61,8 @@ module Make () : TYPES = struct
               try Hashtbl.find env.struct_templates name
               with Not_found ->
                 if name = "slices.Slice" then
-                  raise
-                    (Error
-                       "Missing import: Variadic parameters (...T) require \
-                        `import slices` at the top of your file.")
-                else
-                  raise
-                    (Error
-                       ("Cannot find generic struct template for '" ^ name ^ "'"))
+                  raise (Error.missing_import "slices")
+                else raise (Error.cant_find_struct name)
             in
             let type_map =
               List.map2
@@ -240,6 +232,6 @@ module Make () : TYPES = struct
             { fn_stmt with mod_name = def_mod; is_pub }
             env.pending_instantiations;
           mangled_name
-      | None -> raise (Error ("Undefined generic function: " ^ name))
+      | None -> raise (Error.unknown_var_fn name)
       end
 end

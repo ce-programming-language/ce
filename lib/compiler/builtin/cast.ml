@@ -1,8 +1,7 @@
 open Llvm
 open Ce_parser.Ast
+open Ce_error
 open Codegen
-
-exception Error of string
 
 let register context the_module builder registry =
   let as_fn =
@@ -11,8 +10,7 @@ let register context the_module builder registry =
        (arg_asts : types list) (targs : types list)
        (codegen_expr : expr -> llvalue) (llvm_type_of : types -> lltype)
        (infer_ast_type : expr -> types) ->
-    if List.length targs <> 1 then
-      raise (Error "The .as method expects exactly 1 type argument");
+    if List.length targs <> 1 then raise (Error.generic_requires_type ".as");
 
     let base_path = String.sub fn_name 0 (String.length fn_name - 3) in
     let target_ast_ty = List.hd targs in

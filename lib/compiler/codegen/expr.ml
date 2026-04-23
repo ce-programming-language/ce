@@ -7,8 +7,6 @@ open Infer
 open Codegen
 
 module Make (Types : TYPES) : EXPR = struct
-  exception Error of string
-
   let is_result_type ty =
     match classify_type ty with
     | TypeKind.Struct ->
@@ -198,7 +196,7 @@ module Make (Types : TYPES) : EXPR = struct
             in
             let next_ty = (struct_element_types current_ty).(idx) in
             extract_property env loc next_val next_ty rest
-        | None -> raise (Error.cant_find_struct loc clean_name)
+        | None -> raise (Error.cant_find_struct ~loc clean_name)
       end
       else begin
         let idx = try int_of_string prop with Failure _ -> -1 in
@@ -272,7 +270,7 @@ module Make (Types : TYPES) : EXPR = struct
       | None -> (
           match Utils.lookup_function env name !ce_module with
           | Some f -> f
-          | None -> raise (Error.unknown_var_fn loc name))
+          | None -> raise (Error.unknown_var_fn ~loc name))
     else
       let parts = String.split_on_char '.' name in
       let base_name = List.hd parts in
@@ -280,7 +278,7 @@ module Make (Types : TYPES) : EXPR = struct
       let base_val, base_ast_ty =
         match Hashtbl.find_opt env.named_values base_name with
         | Some (v, ast_ty, _) -> (v, ast_ty)
-        | None -> raise (Error.unknown_var_fn loc base_name)
+        | None -> raise (Error.unknown_var_fn ~loc base_name)
       in
       let is_ptr = match base_ast_ty with TPointer _ -> true | _ -> false in
       let base_struct_ast_ty =
@@ -458,11 +456,11 @@ module Make (Types : TYPES) : EXPR = struct
           build_call ft fn_ptr_raw
             (Array.of_list (env_ptr :: arg_vals))
             call_name !ce_builder
-      | _ -> raise (Error.unknown_var_fn loc "<unnamed>")
+      | _ -> raise (Error.unknown_var_fn ~loc "<unnamed>")
     else if Hashtbl.mem env.fn_templates name then
-      raise (Error.generic_requires_type loc name)
+      raise (Error.generic_requires_type ~loc name)
     else if is_method then gen_method_call env compile_stmt_cb loc name args
-    else raise (Error.unknown_var_fn loc name)
+    else raise (Error.unknown_var_fn ~loc name)
 
   and gen_method_call env compile_stmt_cb loc name args =
     let last_dot_idx = String.rindex name '.' in
@@ -498,7 +496,7 @@ module Make (Types : TYPES) : EXPR = struct
     else
       let self_val =
         try codegen env compile_stmt_cb (Utils.mk_expr @@ Let base_path)
-        with Error _ -> raise (Error.unknown_fn loc name)
+        with Error.Error _ -> raise (Error.unknown_fn loc name)
       in
       let self_ty_llvm = type_of self_val in
       let actual_struct_ty, is_self_ptr =
@@ -584,7 +582,7 @@ module Make (Types : TYPES) : EXPR = struct
     in
     let llty, field_map, def_mod =
       try Hashtbl.find env.struct_registry mangled_name
-      with Not_found -> raise (Error.cant_find_struct loc name)
+      with Not_found -> raise (Error.cant_find_struct ~loc name)
     in
     let alloc = build_alloca llty "structtmp" !ce_builder in
     ignore (build_store (const_null llty) alloc !ce_builder);
@@ -640,7 +638,7 @@ module Make (Types : TYPES) : EXPR = struct
     let array_ptr_val, array_ty =
       match Hashtbl.find_opt env.named_values name with
       | Some (v, ty, _) -> (v, ty)
-      | None -> raise (Error.unknown_var_fn loc name)
+      | None -> raise (Error.unknown_var_fn ~loc name)
     in
     let llvm_array_ty = Types.llvm_type_of env array_ty in
     let idx_val = codegen env compile_stmt_cb index_expr in
@@ -982,7 +980,7 @@ module Make (Types : TYPES) : EXPR = struct
           let base_name = List.hd parts in
           let v, ast_ty, _ =
             try Hashtbl.find env.named_values base_name
-            with Not_found -> raise (Error.unknown_var_fn loc base_name)
+            with Not_found -> raise (Error.unknown_var_fn ~loc base_name)
           in
           let is_ptr, base_struct_ast_ty =
             match ast_ty with TPointer t -> (true, t) | t -> (false, t)
@@ -1001,7 +999,7 @@ module Make (Types : TYPES) : EXPR = struct
           try
             let ptr_val, _, _ = Hashtbl.find env.named_values name in
             ptr_val
-          with Not_found -> raise (Error.unknown_var_fn loc name))
+          with Not_found -> raise (Error.unknown_var_fn ~loc name))
     | _ -> raise (Error.cant_reference_nonvar loc)
 
   and gen_deref env compile_stmt_cb loc deref_e =

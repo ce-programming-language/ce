@@ -1,8 +1,7 @@
 open Llvm
 open Ce_parser.Ast
+open Ce_error
 open Codegen
-
-exception Error of string
 
 let register context the_module builder registry =
   let typeof =
@@ -12,7 +11,7 @@ let register context the_module builder registry =
        (codegen_expr : expr -> llvalue) (llvm_type_of : types -> lltype)
        (infer_ast_type : expr -> types) ->
     if List.length arg_vals <> 1 then
-      raise (Error "typeof expects exactly 1 argument");
+      raise (Error.expects_exactly_args "typeof" "1");
     let arg_val = List.hd arg_vals in
     let ty = type_of arg_val in
 
@@ -142,11 +141,8 @@ let register context the_module builder registry =
        (codegen_expr : expr -> llvalue) (llvm_type_of : types -> lltype)
        (infer_ast_type : expr -> types) ->
     let target_ll_ty =
-      if List.length targ_lltypes = 1 then List.hd targ_lltypes
-      else if List.length arg_asts = 1 then llvm_type_of (List.hd arg_asts)
-      else
-        raise
-          (Error "sizeof expects exactly 1 type argument or 1 value argument")
+      if List.length arg_asts = 1 then llvm_type_of (List.hd arg_asts)
+      else raise (Error.expects_exactly_args "typeof" "1")
     in
     let size_val = size_of target_ll_ty in
     build_intcast size_val (i32_type context) "sizeof_cast" builder
@@ -159,9 +155,9 @@ let register context the_module builder registry =
        (codegen_expr : expr -> llvalue) (llvm_type_of : types -> lltype)
        (infer_ast_type : expr -> types) ->
     if List.length targ_lltypes <> 1 then
-      raise (Error (fn_name ^ " expects exactly 1 type argument"));
+      raise (Error.expects_exactly_args fn_name "1");
     if List.length arg_vals <> 1 then
-      raise (Error (fn_name ^ " expects exactly 1 size argument"));
+      raise (Error.expects_exactly_args fn_name "1");
 
     let elem_ty = List.hd targ_lltypes in
     let count_val = List.hd arg_vals in
@@ -188,9 +184,9 @@ let register context the_module builder registry =
        (codegen_expr : expr -> llvalue) (llvm_type_of : types -> lltype)
        (infer_ast_type : expr -> types) ->
     if List.length targ_lltypes <> 1 then
-      raise (Error "realloc expects exactly 1 type argument");
+      raise (Error.expects_exactly_args fn_name "1");
     if List.length arg_vals <> 2 then
-      raise (Error "realloc expects exactly 2 arguments (ptr, new_size)");
+      raise (Error.expects_exactly_args fn_name "2");
 
     let elem_ty = List.hd targ_lltypes in
     let ptr_val = List.hd arg_vals in

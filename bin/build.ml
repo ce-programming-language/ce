@@ -5,8 +5,6 @@ open Ce_parser.Ast
 open Cmdliner
 open Llvm_target
 
-exception Error of string
-
 let read file = In_channel.with_open_text file In_channel.input_all
 
 let parse filepath src =
