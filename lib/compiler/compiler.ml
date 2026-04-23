@@ -6,20 +6,21 @@ module Types = Types.Make ()
 module Expr = Expr.Make (Types)
 module Stmt = Stmt.Make (Types) (Expr)
 
-let optimize the_module =
+let optimize opt_level the_module =
   ignore (Llvm_all_backends.initialize ());
+  let pbo = Llvm_passbuilder.create_passbuilder_options () in
   let target_triple = Llvm_target.Target.default_triple () in
   let target_machine =
     Llvm_target.TargetMachine.create ~triple:target_triple
       (Llvm_target.Target.by_triple target_triple)
   in
-  let pbo = Llvm_passbuilder.create_passbuilder_options () in
-  ignore
-    (Llvm_passbuilder.run_passes the_module "default<O3>" target_machine pbo);
+
+  let pass_str = "default<O" ^ opt_level ^ ">" in
+  ignore (Llvm_passbuilder.run_passes the_module pass_str target_machine pbo);
   Llvm_passbuilder.dispose_passbuilder_options pbo;
   the_module
 
-let compile (stmts : stmt list) =
+let compile ?(opt = "0") (stmts : stmt list) =
   let env = State.create_env ce_ctx in
   let modules_map = Hashtbl.create 10 in
 
@@ -53,6 +54,18 @@ let compile (stmts : stmt list) =
   in
   process_pending ();
 
-  let lto_main = create_module ce_ctx "main" in
-  Hashtbl.iter (fun _ (m, _) -> Llvm_linker.link_modules lto_main m) modules_map;
-  [ ("main", optimize lto_main) ]
+  if opt == "lto" then begin
+    let lto_main = create_module ce_ctx "main" in
+    Hashtbl.iter
+      (fun _ (m, _) -> Llvm_linker.link_modules lto_main m)
+      modules_map;
+    [ ("main", optimize opt lto_main) ]
+  end
+  else begin
+    let generated_modules = ref [] in
+    Hashtbl.iter
+      (fun mname (m, _) ->
+        generated_modules := (mname, optimize opt m) :: !generated_modules)
+      modules_map;
+    !generated_modules
+  end

@@ -9,10 +9,11 @@ let dump modules =
       print_endline (string_of_llmodule m))
     modules
 
-let execute file =
+let execute optimization file =
   let visited = Hashtbl.create 10 in
   let ast = Build.process_file visited file in
-  try ast |> Compiler.compile |> dump
+  let optimization = if optimization = "" then "0" else optimization in
+  try ast |> Compiler.compile ~opt:optimization |> dump
   with Failure msg ->
     Printf.printf "Error: %s\n" msg;
     exit 1
@@ -20,4 +21,4 @@ let execute file =
 let command =
   let doc = "Read ce-lang code file then show debug output" in
   let info = Cmd.info "debug" ~doc in
-  Cmd.v info Term.(const execute $ Command.file_arg)
+  Cmd.v info Term.(const execute $ Command.opt_flag $ Command.file_arg)
