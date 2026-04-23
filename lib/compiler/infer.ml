@@ -92,7 +92,9 @@ let rec infer_ast_type (env : compiler_env) (expr : expr) =
             if String.ends_with ~suffix:".as" name && List.length targs = 1 then
               List.hd targs
             else if Hashtbl.mem env.fn_templates name then
-              let tparams, _, ret_ty, _, _, _ = Hashtbl.find env.fn_templates name in
+              let tparams, _, ret_ty, _, _, _ =
+                Hashtbl.find env.fn_templates name
+              in
               if List.length tparams = List.length targs then
                 let type_map =
                   List.map2

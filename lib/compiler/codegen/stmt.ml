@@ -88,7 +88,8 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                "The main function must be public. Use 'pub fn main'");
 
         if List.length tparams > 0 then begin
-          Hashtbl.add env.fn_templates name (tparams, params, ret_ty, body, s.is_pub, !(env.current_module));
+          Hashtbl.add env.fn_templates name
+            (tparams, params, ret_ty, body, s.is_pub, !(env.current_module));
           const_null (void_type ce_ctx)
         end
         else begin
@@ -389,8 +390,10 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           | _ -> false
         in
         if is_foreach then
-          codegen env
-            (Utils.mk_stmt (ForEach (None, None, Option.get cond, stmts)))
+          let for_stmt =
+            Utils.mk_stmt (ForEach (None, None, Option.get cond, stmts))
+          in
+          codegen env { for_stmt with mod_name = !(env.current_module) }
         else begin
           let init_var_name =
             match init with
@@ -561,6 +564,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         Utils.Stmt.gen_return env !ce_builder ce_ctx v
     | Import _ -> const_null (void_type ce_ctx)
     | ImportFrom _ -> const_null (void_type ce_ctx)
+
     | Impl (name, params, methods) ->
         if List.length params > 0 then begin
           Hashtbl.add env.impl_templates name
@@ -608,22 +612,24 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                 (ft, List.map (fun (p : param) -> p.ty) all_params, ret_ty);
               Hashtbl.replace env.method_registry mangled_name
                 (is_pub, !(env.current_module));
+              
               let _ =
                 match Llvm.lookup_function mangled_name !ce_module with
                 | Some existing -> existing
                 | None ->
                     let new_f = declare_function mangled_name ft !ce_module in
-                    set_linkage Linkage.Internal new_f;
+                    if not is_pub then set_linkage Linkage.Internal new_f;
                     new_f
               in
 
+              let fn_stmt = Utils.mk_stmt (DefFN (mangled_name, [], all_params, ret_ty, body)) in
               Queue.push
-                (Utils.mk_stmt
-                   (DefFN (mangled_name, [], all_params, ret_ty, body)))
+                { fn_stmt with mod_name = !(env.current_module); is_pub = is_pub }
                 env.pending_instantiations)
             methods;
           const_null (void_type ce_ctx)
         end
+
     | Raise e ->
         let err_msg = Expr.codegen env codegen e in
         let ret_ty = !(env.current_fn_ret_ty) in

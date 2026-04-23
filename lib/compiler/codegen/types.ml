@@ -176,8 +176,9 @@ module Make () : TYPES = struct
                         sub_body ))
                     methods
                 in
+                let impl_stmt = Utils.mk_stmt (Impl (mangled_name, [], specialized_methods)) in
                 Queue.push
-                  (Utils.mk_stmt (Impl (mangled_name, [], specialized_methods)))
+                { impl_stmt with mod_name = def_impl_mod }
                   env.pending_instantiations
             | None -> ());
 

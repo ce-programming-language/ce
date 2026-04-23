@@ -105,6 +105,15 @@ class namespacer prefix decls =
 
 let namespace_stmt prefix decls ast = (new namespacer prefix decls)#map_stmt ast
 
+class module_tagger mod_name =
+  object
+    inherit Ce_parser.Ast_mapper.mapper as super
+
+    method! map_stmt s =
+      let s' = super#map_stmt s in
+      { s' with Ce_parser.Ast.mod_name }
+  end
+
 let rec process_file_inner visited filepath namespace_prefix mod_name =
   let cache_key =
     filepath
@@ -116,11 +125,8 @@ let rec process_file_inner visited filepath namespace_prefix mod_name =
     Hashtbl.add visited cache_key true;
     let src = read filepath in
 
-    (* Force the AST to use the explicitly passed mod_name *)
-    let ast =
-      parse filepath src
-      |> List.map (fun s -> { s with Ce_parser.Ast.mod_name })
-    in
+    let tagger = new module_tagger mod_name in
+    let ast = parse filepath src |> List.map tagger#map_stmt in
 
     let decls =
       List.fold_left
@@ -160,7 +166,6 @@ let rec process_file_inner visited filepath namespace_prefix mod_name =
               let import_path = resolve_import path_list in
               let module_name = List.hd (List.rev path_list) in
 
-              (* Pass 'module_name' so it goes to the right LLVM module, but keep namespace 'None' *)
               let raw_ast =
                 process_file_inner visited import_path None module_name
               in
