@@ -514,7 +514,7 @@ module Make (Types : TYPES) : EXPR = struct
                            ("Function '" ^ name
                           ^ "' is generic and requires type arguments (e.g., "
                           ^ name ^ "<int>())"))
-                    else if String.contains name '.' then
+                    else if String.contains name '.' then (
                       let last_dot_idx = String.rindex name '.' in
                       let base_path = String.sub name 0 last_dot_idx in
                       let method_name =
@@ -533,8 +533,9 @@ module Make (Types : TYPES) : EXPR = struct
                               raise
                                 (Utils.mk_error e.loc
                                    ("Cannot call private method '" ^ method_name
-                                  ^ "' on struct"))
+                                  ^ "' on struct '" ^ base_path ^ "'"))
                         | None -> ());
+
                         let callee =
                           match lookup_function env mangled_name !ce_module with
                           | Some c -> c
@@ -596,6 +597,17 @@ module Make (Types : TYPES) : EXPR = struct
                                     ^ "' on a non-struct type")))
                         in
                         let mangled_name = clean_name ^ "::" ^ method_name in
+                        (match
+                           Hashtbl.find_opt env.method_registry mangled_name
+                         with
+                        | Some (is_pub, def_mod) ->
+                            if (not is_pub) && !(env.current_module) <> def_mod
+                            then
+                              raise
+                                (Utils.mk_error e.loc
+                                   ("Cannot call private method '" ^ method_name
+                                  ^ "' on type '" ^ clean_name ^ "'"))
+                        | None -> ());
                         let callee =
                           match lookup_function env mangled_name !ce_module with
                           | Some c -> c
@@ -664,7 +676,7 @@ module Make (Types : TYPES) : EXPR = struct
                           if return_type ft = void_type ce_ctx then ""
                           else "methodcalltmp"
                         in
-                        build_call ft callee all_args call_name !ce_builder
+                        build_call ft callee all_args call_name !ce_builder)
                     else
                       raise (Utils.mk_error e.loc ("Unknown function: " ^ name))
                 )))
