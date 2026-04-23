@@ -564,7 +564,6 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         Utils.Stmt.gen_return env !ce_builder ce_ctx v
     | Import _ -> const_null (void_type ce_ctx)
     | ImportFrom _ -> const_null (void_type ce_ctx)
-
     | Impl (name, params, methods) ->
         if List.length params > 0 then begin
           Hashtbl.add env.impl_templates name
@@ -612,7 +611,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                 (ft, List.map (fun (p : param) -> p.ty) all_params, ret_ty);
               Hashtbl.replace env.method_registry mangled_name
                 (is_pub, !(env.current_module));
-              
+
               let _ =
                 match Llvm.lookup_function mangled_name !ce_module with
                 | Some existing -> existing
@@ -622,14 +621,16 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                     new_f
               in
 
-              let fn_stmt = Utils.mk_stmt (DefFN (mangled_name, [], all_params, ret_ty, body)) in
+              let fn_stmt =
+                Utils.mk_stmt
+                  (DefFN (mangled_name, [], all_params, ret_ty, body))
+              in
               Queue.push
-                { fn_stmt with mod_name = !(env.current_module); is_pub = is_pub }
+                { fn_stmt with mod_name = !(env.current_module); is_pub }
                 env.pending_instantiations)
             methods;
           const_null (void_type ce_ctx)
         end
-
     | Raise e ->
         let err_msg = Expr.codegen env codegen e in
         let ret_ty = !(env.current_fn_ret_ty) in

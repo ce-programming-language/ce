@@ -1,7 +1,7 @@
 open Llvm
 open Ce_parser.Ast
+open Ce_parser.Ast_mapper
 open State
-open Substitue
 open Codegen
 
 module Make () : TYPES = struct
@@ -176,9 +176,11 @@ module Make () : TYPES = struct
                         sub_body ))
                     methods
                 in
-                let impl_stmt = Utils.mk_stmt (Impl (mangled_name, [], specialized_methods)) in
+                let impl_stmt =
+                  Utils.mk_stmt (Impl (mangled_name, [], specialized_methods))
+                in
                 Queue.push
-                { impl_stmt with mod_name = def_impl_mod }
+                  { impl_stmt with mod_name = def_impl_mod }
                   env.pending_instantiations
             | None -> ());
 

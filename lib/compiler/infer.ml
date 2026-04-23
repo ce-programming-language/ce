@@ -1,6 +1,6 @@
-open Substitue
 open Utils
 open Ce_parser.Ast
+open Ce_parser.Ast_mapper
 open State
 
 let rec infer_ast_type (env : compiler_env) (expr : expr) =
