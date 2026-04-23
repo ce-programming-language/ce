@@ -86,7 +86,13 @@ and param = { param_name : string; ty : types }
 and struct_field = { field_name : string; ty : types; is_mut : bool }
 and fn_signature = { fn_name : string; params : param list; ret_ty : types }
 
-and stmt = { id : int; loc : loc; node : stmt_node; docstring : string option }
+and stmt = {
+  id : int;
+  loc : loc;
+  node : stmt_node;
+  docstring : string option;
+  is_pub : bool;
+}
 [@@deriving show]
 
 and stmt_node =

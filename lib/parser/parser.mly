@@ -21,11 +21,15 @@
       inferred_type = ref None; 
       resolved_def_id = ref None }
       
-  let mk_stmt start_pos end_pos (node: stmt_node): stmt = 
+  let mk_stmt is_pub start_pos end_pos (node: stmt_node): stmt = 
     { id = get_id (); 
       loc = make_loc start_pos end_pos; 
       node; 
+      is_pub;
       docstring = None }
+
+  let mk_stmt_pub start_pos end_pos (node: stmt_node): stmt = 
+    mk_stmt true start_pos end_pos node
 
   let rec attach_generic_call (e: expr) targs args =
     let attached = match e.node with
@@ -80,7 +84,7 @@
 %token <char>   CHAR
 %token          PLUS MINUS STAR SLASH MOD EQEQ LT LTE GT GTE AND OR BANG
 %token          LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET COMMA EQUALS DOT AMP SEMICOLON ELLIPSIS
-%token          EOF RETURN IMPORT FROM BREAK NEWLINE TYPE IMPL RAISE CATCH STRUCT TRAIT EXTERN
+%token          EOF RETURN IMPORT FROM BREAK NEWLINE TYPE IMPL RAISE CATCH STRUCT TRAIT EXTERN PUB
 %token          TYPE_BOOL TYPE_VOID TYPE_STRING TYPE_CHAR
 %token          TYPE_INT TYPE_I8 TYPE_I16 TYPE_I32 TYPE_I64 TYPE_I128
 %token          TYPE_UINT TYPE_U8 TYPE_U16 TYPE_U32 TYPE_U64 TYPE_U128
@@ -95,6 +99,10 @@
 
 %start <Ast.stmt list> prog
 %%
+
+%inline pub_opt:
+  |     { false }
+  | PUB { true }
 
 prog:
   | sep_opt EOF                 { [] }
@@ -120,10 +128,10 @@ global_stmt:
   | def_struct      { $1 }
   | def_trait       { $1 }
   | def_extern      { $1 }
-  | IMPORT path = module_path { mk_stmt $startpos $endpos @@ Import path }
-  | IMPORT names = separated_list(COMMA, IDENT) FROM path = module_path { mk_stmt $startpos $endpos @@ ImportFrom (names, path) }
+  | IMPORT path = module_path { mk_stmt false $startpos $endpos @@ Import path }
+  | IMPORT names = separated_list(COMMA, IDENT) FROM path = module_path { mk_stmt false $startpos $endpos @@ ImportFrom (names, path) }
   | IMPL struct_name = impl_target params = generic_params_opt LBRACE sep_opt methods = impl_method_list RBRACE
-      { mk_stmt $startpos $endpos @@ Impl (struct_name, params, methods) }
+      { mk_stmt false $startpos $endpos @@ Impl (struct_name, params, methods) }
 
 stmt:
   | def_fn          { $1 }
@@ -132,25 +140,25 @@ stmt:
   | def_struct      { $1 }
   | def_trait       { $1 }
   | def_extern      { $1 }
-  | name = path EQUALS e = expr { mk_stmt $startpos $endpos @@ Assign (name, e) }
-  | name = path LBRACKET idx = expr RBRACKET EQUALS e = expr { mk_stmt $startpos $endpos @@ ArrayAssign (name, idx, e) }
-  | STAR ptr = expr_simple EQUALS e = expr { mk_stmt $startpos $endpos @@ DerefAssign (ptr, e) }
-  | RETURN expr     { mk_stmt $startpos $endpos @@ Return $2 }
-  | RETURN          { mk_stmt $startpos $endpos @@ Return (mk_expr $startpos $endpos Void) }
-  | BREAK           { mk_stmt $startpos $endpos Break }
-  | block           { mk_stmt $startpos $endpos @@ Block $1 }
-  | expr            { mk_stmt $startpos $endpos @@ Expr $1 }
-  | RAISE e = expr  { mk_stmt $startpos $endpos @@ Raise e }
+  | name = path EQUALS e = expr { mk_stmt false $startpos $endpos @@ Assign (name, e) }
+  | name = path LBRACKET idx = expr RBRACKET EQUALS e = expr { mk_stmt false $startpos $endpos @@ ArrayAssign (name, idx, e) }
+  | STAR ptr = expr_simple EQUALS e = expr { mk_stmt false $startpos $endpos @@ DerefAssign (ptr, e) }
+  | RETURN expr     { mk_stmt false $startpos $endpos @@ Return $2 }
+  | RETURN          { mk_stmt false $startpos $endpos @@ Return (mk_expr $startpos $endpos Void) }
+  | BREAK           { mk_stmt false $startpos $endpos Break }
+  | block           { mk_stmt false $startpos $endpos @@ Block $1 }
+  | expr            { mk_stmt false $startpos $endpos @@ Expr $1 }
+  | RAISE e = expr  { mk_stmt false $startpos $endpos @@ Raise e }
   | IMPL struct_name = impl_target params = generic_params_opt LBRACE sep_opt methods = impl_method_list RBRACE
-      { mk_stmt $startpos $endpos @@ Impl (struct_name, params, methods) }
+      { mk_stmt false $startpos $endpos @@ Impl (struct_name, params, methods) }
 
-  | FOR idx = IDENT COMMA v = IDENT EQUALS iter = expr_no_struct body = block { mk_stmt $startpos $endpos @@ ForEach (Some idx, Some v, iter, body) }
-  | FOR idx = IDENT EQUALS iter = expr_no_struct body = block { mk_stmt $startpos $endpos @@ ForEach (Some idx, None, iter, body) }
+  | FOR idx = IDENT COMMA v = IDENT EQUALS iter = expr_no_struct body = block { mk_stmt false $startpos $endpos @@ ForEach (Some idx, Some v, iter, body) }
+  | FOR idx = IDENT EQUALS iter = expr_no_struct body = block { mk_stmt false $startpos $endpos @@ ForEach (Some idx, None, iter, body) }
 
-  | FOR body = block { mk_stmt $startpos $endpos @@ For (None, None, None, body) }
-  | FOR cond = expr_no_struct body = block { mk_stmt $startpos $endpos @@ For (None, Some cond, None, body) }
-  | FOR init = for_init SEMICOLON cond = expr_no_struct body = block { mk_stmt $startpos $endpos @@ For (Some init, Some cond, None, body) }
-  | FOR init = for_init SEMICOLON cond = expr_no_struct SEMICOLON mut = for_mut body = block { mk_stmt $startpos $endpos @@ For (Some init, Some cond, Some mut, body) }
+  | FOR body = block { mk_stmt false $startpos $endpos @@ For (None, None, None, body) }
+  | FOR cond = expr_no_struct body = block { mk_stmt false $startpos $endpos @@ For (None, Some cond, None, body) }
+  | FOR init = for_init SEMICOLON cond = expr_no_struct body = block { mk_stmt false $startpos $endpos @@ For (Some init, Some cond, None, body) }
+  | FOR init = for_init SEMICOLON cond = expr_no_struct SEMICOLON mut = for_mut body = block { mk_stmt false $startpos $endpos@@ For (Some init, Some cond, Some mut, body) }
 
 block:
   | LBRACE sep_opt RBRACE             { [] }
@@ -173,12 +181,12 @@ stmt_list:
   | stmt sep stmt_list    { $1 :: $3 }
 
 def_let:
-  | LET name = IDENT ty = types EQUALS e = expr { mk_stmt $startpos $endpos @@  DefLet (name, false, ty, Some e) }
-  | LET MUT name = IDENT ty = types EQUALS e = expr { mk_stmt $startpos $endpos @@ DefLet (name, true, ty, Some e) }
-  | LET name = IDENT ty = types                 { mk_stmt $startpos $endpos @@ DefLet (name, false, ty, None) }
-  | LET MUT name = IDENT ty = types             { mk_stmt $startpos $endpos @@ DefLet (name, true, ty, None) }
-  | LET name = IDENT EQUALS e = expr            { mk_stmt $startpos $endpos @@ DefLet (name, false, TUnknown, Some e) }
-  | LET MUT name = IDENT EQUALS e = expr        { mk_stmt $startpos $endpos @@ DefLet (name, true, TUnknown, Some e) }
+  | p = pub_opt LET name = IDENT ty = types EQUALS e = expr { (if p then mk_stmt_pub else mk_stmt false) $startpos $endpos @@  DefLet (name, false, ty, Some e) }
+  | p = pub_opt LET MUT name = IDENT ty = types EQUALS e = expr { (if p then mk_stmt_pub else mk_stmt false) $startpos $endpos @@ DefLet (name, true, ty, Some e) }
+  | p = pub_opt LET name = IDENT ty = types                 { (if p then mk_stmt_pub else mk_stmt false) $startpos $endpos @@ DefLet (name, false, ty, None) }
+  | p = pub_opt LET MUT name = IDENT ty = types             { (if p then mk_stmt_pub else mk_stmt false) $startpos $endpos @@ DefLet (name, true, ty, None) }
+  | p = pub_opt LET name = IDENT EQUALS e = expr            { (if p then mk_stmt_pub else mk_stmt false) $startpos $endpos @@ DefLet (name, false, TUnknown, Some e) }
+  | p = pub_opt LET MUT name = IDENT EQUALS e = expr        { (if p then mk_stmt_pub else mk_stmt false) $startpos $endpos @@ DefLet (name, true, TUnknown, Some e) }
 
 type_scalar:
   | TYPE_VOID   { TVoid }
@@ -226,17 +234,17 @@ param:
   | name = IDENT ELLIPSIS ty = types { { param_name = name; ty = TVariadic ty } }
 
 def_fn:
-  | FN name = IDENT tparams = generic_params_opt LPAREN params = separated_list(COMMA, param) RPAREN ty = types body = block
-    { mk_stmt $startpos $endpos @@ DefFN (name, tparams, params, ty, body) }
+  | p = pub_opt FN name = IDENT tparams = generic_params_opt LPAREN params = separated_list(COMMA, param) RPAREN ty = types body = block
+    { (if p then mk_stmt_pub else mk_stmt false) $startpos $endpos @@ DefFN (name, tparams, params, ty, body) }
 
 def_type:
-  | TYPE name = IDENT ty = types {  mk_stmt $startpos $endpos @@ DefType (name, ty) }
+  | p = pub_opt TYPE name = IDENT ty = types { (if p then mk_stmt_pub else mk_stmt false) $startpos $endpos @@ DefType (name, ty) }
 
 def_struct:
-  | STRUCT name = IDENT params = generic_params_opt LBRACE sep_opt RBRACE 
-    { mk_stmt $startpos $endpos @@  DefStruct (name, params, []) }
-  | STRUCT name = IDENT params = generic_params_opt LBRACE sep_opt fields = struct_field_list RBRACE 
-    { mk_stmt $startpos $endpos @@  DefStruct (name, params, fields) }
+  | p = pub_opt STRUCT name = IDENT params = generic_params_opt LBRACE sep_opt RBRACE 
+    { (if p then mk_stmt_pub else mk_stmt false) $startpos $endpos @@  DefStruct (name, params, []) }
+  | p = pub_opt STRUCT name = IDENT params = generic_params_opt LBRACE sep_opt fields = struct_field_list RBRACE 
+    { (if p then mk_stmt_pub else mk_stmt false) $startpos $endpos @@  DefStruct (name, params, fields) }
 
 struct_field_list:
   | f = struct_field                                            { [f] }
@@ -307,16 +315,16 @@ impl_target:
   | TYPE_F32 { "f32" }
 
 def_trait:
-  | TRAIT name = IDENT LBRACE sep_opt RBRACE 
-      { mk_stmt $startpos $endpos @@  DefInterface (name, []) }
-  | TRAIT name = IDENT LBRACE sep_opt sigs = fn_signature_list RBRACE 
-      { mk_stmt $startpos $endpos @@  DefInterface (name, sigs) }
+  | p = pub_opt TRAIT name = IDENT LBRACE sep_opt RBRACE 
+      { (if p then mk_stmt_pub else mk_stmt false) $startpos $endpos @@  DefInterface (name, []) }
+  | p = pub_opt TRAIT name = IDENT LBRACE sep_opt sigs = fn_signature_list RBRACE 
+      { (if p then mk_stmt_pub else mk_stmt false) $startpos $endpos @@  DefInterface (name, sigs) }
 
 def_extern:
-  | EXTERN FN name = IDENT LPAREN params = separated_list(COMMA, param) RPAREN ty = types
-      { mk_stmt $startpos $endpos @@  ExternFN (None, name, params, ty) }
-  | EXTERN alias = STRING FN name = IDENT LPAREN params = separated_list(COMMA, param) RPAREN ty = types
-      { mk_stmt $startpos $endpos @@  ExternFN (Some alias, name, params, ty) }
+  | p = pub_opt EXTERN FN name = IDENT LPAREN params = separated_list(COMMA, param) RPAREN ty = types
+      { (if p then mk_stmt_pub else mk_stmt false) $startpos $endpos @@  ExternFN (None, name, params, ty) }
+  | p = pub_opt EXTERN alias = STRING FN name = IDENT LPAREN params = separated_list(COMMA, param) RPAREN ty = types
+      { (if p then mk_stmt_pub else mk_stmt false) $startpos $endpos @@  ExternFN (Some alias, name, params, ty) }
 
 fn_signature_list:
   | s = fn_signature                                            { [s] }
@@ -330,14 +338,14 @@ fn_signature:
       { { fn_name = name; params = params; ret_ty = ty } }
 
 for_init:
-  | name = IDENT ty = types EQUALS e = expr_no_struct { mk_stmt $startpos $endpos @@  DefLet (name, true, ty, Some e) }
-  | name = IDENT EQUALS e = expr_no_struct            { mk_stmt $startpos $endpos @@  DefLet (name, true, TUnknown, Some e) }
+  | name = IDENT ty = types EQUALS e = expr_no_struct { mk_stmt false $startpos $endpos @@  DefLet (name, true, ty, Some e) }
+  | name = IDENT EQUALS e = expr_no_struct            { mk_stmt false $startpos $endpos @@  DefLet (name, true, TUnknown, Some e) }
 
 for_mut:
-  | name = path EQUALS e = expr_no_struct {  mk_stmt $startpos $endpos @@ Assign (name, e) }
-  | name = path LBRACKET idx = expr RBRACKET EQUALS e = expr_no_struct {  mk_stmt $startpos $endpos @@ ArrayAssign (name, idx, e) }
-  | STAR ptr = expr_simple EQUALS e = expr_no_struct {  mk_stmt $startpos $endpos @@ DerefAssign (ptr, e) }
-  | e = expr_no_struct { mk_stmt $startpos $endpos @@  Expr e }
+  | name = path EQUALS e = expr_no_struct {  mk_stmt false $startpos $endpos @@ Assign (name, e) }
+  | name = path LBRACKET idx = expr RBRACKET EQUALS e = expr_no_struct {  mk_stmt false $startpos $endpos @@ ArrayAssign (name, idx, e) }
+  | STAR ptr = expr_simple EQUALS e = expr_no_struct {  mk_stmt false $startpos $endpos @@ DerefAssign (ptr, e) }
+  | e = expr_no_struct { mk_stmt false $startpos $endpos @@  Expr e }
 
 expr_simple:
   | a = array                                                     { mk_expr $startpos $endpos a }

@@ -1,12 +1,12 @@
-fn abs(x float) float {
+pub fn abs(x float) float {
   return if x < 0.0 { -x } else { x }
 }
 
-fn max(a int, b int) int {
+pub fn max(a int, b int) int {
   return if a > b { a } else { b }
 }
 
-fn min(a int, b int) int {
+pub fn min(a int, b int) int {
   return if a < b { a } else { b }
 }
 

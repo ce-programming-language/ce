@@ -104,7 +104,7 @@ let mk_stmt (n : stmt_node) : stmt =
   let loc =
     { line = 0; col = 0; end_line = 0; end_col = 0; file = "<builtin>" }
   in
-  { id = get_builtin_id (); loc; node = n; docstring = None }
+  { id = get_builtin_id (); loc; node = n; docstring = None; is_pub = false }
 
 let mk_error (loc : loc) msg =
   Error (Printf.sprintf "%s:%d:%d: %s" loc.file loc.line loc.col msg)

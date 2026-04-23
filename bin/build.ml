@@ -5,6 +5,8 @@ open Ce_parser.Ast
 open Cmdliner
 open Llvm_target
 
+exception Error of string
+
 let read file = In_channel.with_open_text file In_channel.input_all
 
 let parse filepath src =
@@ -50,7 +52,10 @@ class namespacer prefix decls =
     inherit Ce_parser.Ast_mapper.mapper as super
 
     method apply_namespace name =
-      if List.mem name decls then prefix ^ "." ^ name else name
+      match List.assoc_opt name decls with
+      | Some is_pub ->
+          if is_pub then prefix ^ "." ^ name else prefix ^ ".__priv_" ^ name
+      | None -> name
 
     method! map_type t =
       match t with
@@ -112,12 +117,18 @@ let rec process_file_inner visited filepath namespace_prefix =
     let decls =
       List.fold_left
         (fun acc stmt ->
-          match stmt.node with
-          | DefFN (name, _, _, _, _) -> name :: acc
-          | DefStruct (name, _, _) -> name :: acc
-          | DefInterface (name, _) -> name :: acc
-          | ExternFN (_, name, _, _) -> name :: acc
-          | _ -> acc)
+          let name_opt =
+            match stmt.node with
+            | DefFN (name, _, _, _, _) -> Some name
+            | DefStruct (name, _, _) -> Some name
+            | DefInterface (name, _) -> Some name
+            | ExternFN (_, name, _, _) -> Some name
+            | DefLet (name, _, _, _) -> Some name
+            | _ -> None
+          in
+          match name_opt with
+          | Some name -> (name, stmt.is_pub) :: acc
+          | None -> acc)
         [] ast
     in
 
@@ -141,13 +152,26 @@ let rec process_file_inner visited filepath namespace_prefix =
               let filtered_ast =
                 List.filter
                   (fun s ->
-                    match s.node with
-                    | DefFN (name, _, _, _, _) -> List.mem name names
-                    | DefStruct (name, _, _) -> List.mem name names
-                    | DefInterface (name, _) -> List.mem name names
-                    | ExternFN (_, name, _, _) -> List.mem name names
-                    | Impl (name, _, _) -> List.mem name names
-                    | _ -> false)
+                    let is_match =
+                      match s.node with
+                      | DefFN (name, _, _, _, _) -> List.mem name names
+                      | DefStruct (name, _, _) -> List.mem name names
+                      | DefInterface (name, _) -> List.mem name names
+                      | ExternFN (_, name, _, _) -> List.mem name names
+                      | Impl (name, _, _) -> List.mem name names
+                      | DefLet (name, _, _, _) -> List.mem name names
+                      | _ -> false
+                    in
+                    let is_impl =
+                      match s.node with Impl _ -> true | _ -> false
+                    in
+                    if is_match && (not s.is_pub) && not is_impl then
+                      raise
+                        (Error
+                           ("Error: Cannot import " ^ String.concat ", " names
+                          ^ " from module "
+                           ^ String.concat "," path_list));
+                    is_match)
                   raw_ast
               in
               acc @ filtered_ast

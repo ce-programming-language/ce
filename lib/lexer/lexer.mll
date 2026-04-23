@@ -52,6 +52,7 @@ rule tokenize = parse
   | "void"             { expr_end TYPE_VOID }   
   | "import"           { expr_cont IMPORT }
   | "from"             { expr_cont FROM }
+  | "pub"              { expr_cont PUB }
   | "extern"           { expr_cont EXTERN }
   | "type"             { expr_cont TYPE }
   | "impl"             { expr_cont IMPL }
