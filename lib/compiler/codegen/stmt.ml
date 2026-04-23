@@ -1,13 +1,12 @@
 open Llvm
 open Ce_parser.Ast
+open Ce_error
 open State
 open Utils
 open Infer
 open Codegen
 
 module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
-  exception Error of string
-
   let rec gen_block env stmts =
     List.iter
       (fun s ->
@@ -39,27 +38,21 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
     | DefLet (name, ismut, ty, expr_opt) ->
         let raw_val_opt, inferred_ty =
           match expr_opt with
-          | Some e ->
-              let raw_val = Expr.codegen env codegen e in
+          | Some s ->
+              let raw_val = Expr.codegen env codegen s in
               let deduced_ty =
                 if ty = TUnknown then
-                  let inferred = infer_ast_type env e in
+                  let inferred = infer_ast_type env s in
                   if inferred = TUnknown then
-                    raise
-                      (Utils.mk_error e.loc
-                         ("Cannot infer type for variable '" ^ name
-                        ^ "'. Please specify the type explicitly."))
+                    raise (Error.cant_infer_type_for_var s.loc name)
                   else match inferred with TResult t -> t | _ -> inferred
                 else ty
               in
               (Some raw_val, deduced_ty)
           | None ->
               if ty = TUnknown then
-                raise
-                  (Utils.mk_error s.loc
-                     ("Cannot infer type for '" ^ name
-                    ^ "' without initialization"));
-              (None, ty)
+                raise (Error.cant_infer_type_without_init s.loc name)
+              else (None, ty)
         in
 
         let ll_ty = Types.llvm_type_of env inferred_ty in
@@ -83,9 +76,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         alloca
     | DefFN (name, tparams, params, ret_ty, body) ->
         if name = "main" && not s.is_pub then
-          raise
-            (Utils.mk_error s.loc
-               "The main function must be public. Use 'pub fn main'");
+          raise (Error.main_must_public s.loc);
 
         if List.length tparams > 0 then begin
           Hashtbl.add env.fn_templates name
@@ -141,10 +132,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                 ignore
                   (Utils.Stmt.gen_return env !ce_builder ce_ctx
                      (const_null (void_type ce_ctx)))
-              else
-                raise
-                  (Utils.mk_error s.loc
-                     ("Function '" ^ name ^ "' is missing a return statement")));
+              else raise (Error.function_missing_return s.loc name));
 
           Hashtbl.clear env.named_values;
           Hashtbl.iter
@@ -274,14 +262,14 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                       in
                       if (not is_pub) && !(env.current_module) <> def_mod then
                         raise
-                          (Utils.mk_error s.loc
-                             ("Cannot assign to private property '" ^ prop
-                            ^ "' on struct '" ^ clean_name ^ "'"));
+                          (Error.cant_access_private_on_struct ~loc:s.loc prop
+                             clean_name);
+
                       if rest = [] && not is_mut then
                         raise
-                          (Utils.mk_error s.loc
-                             ("Cannot assign to immutable field '" ^ prop
-                            ^ "' on struct '" ^ clean_name ^ "'"));
+                          (Error.cant_assign_immutable_field s.loc prop
+                             clean_name);
+
                       let next_ptr =
                         build_struct_gep ty ptr idx "prop_ptr" !ce_builder
                       in
@@ -303,15 +291,9 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           else
             let v, ast_ty, ismut =
               try Hashtbl.find env.named_values name
-              with Not_found ->
-                raise
-                  (Utils.mk_error s.loc ("Unknown variable: '" ^ name ^ "'"))
+              with Not_found -> raise (Error.unknown_var_fn s.loc name)
             in
-            if not ismut then
-              raise
-                (Utils.mk_error s.loc
-                   ("Cannot assign to immutable variable '" ^ name ^ "'"));
-
+            if not ismut then raise (Error.cant_assign_immutable_var s.loc name);
             (v, Types.llvm_type_of env ast_ty, is_unsigned ast_ty)
         in
         let src_ty = infer_ast_type env expr in
@@ -326,14 +308,9 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           match Hashtbl.find_opt env.named_values name with
           | Some (v, ty, ismut) ->
               if not ismut then
-                raise
-                  (Utils.mk_error s.loc
-                     ("Cannot assign to immutable array '" ^ name ^ "'"));
+                raise (Error.cant_assign_immutable_arr s.loc name);
               (v, ty)
-          | None ->
-              raise
-                (Utils.mk_error s.loc
-                   ("Array '" ^ name ^ "' not found for assignment"))
+          | None -> raise (Error.unknown_var_fn s.loc name)
         in
 
         let idx_val = Expr.codegen env codegen index_expr in
@@ -357,9 +334,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           | TPointer t -> t
           | TString -> TChar
           | _ ->
-              raise
-                (Utils.mk_error s.loc
-                   "Left-hand side of dereference assignment must be a pointer")
+              raise (Error.left_side_dereference_assignment_must_pointer s.loc)
         in
 
         let raw_val = Expr.codegen env codegen val_expr in
@@ -555,7 +530,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         const_null (void_type ce_ctx)
     | Break ->
         if Stack.is_empty env.loop_exit_blocks then
-          raise (Utils.mk_error s.loc "Break outside of a loop");
+          raise (Error.break_outside_loop s.loc);
         let exit_block = Stack.top env.loop_exit_blocks in
         ignore (build_br exit_block !ce_builder);
         const_null (void_type ce_ctx)

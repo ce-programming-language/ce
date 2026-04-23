@@ -4,6 +4,7 @@
  (name ce_compiler)
  (libraries
   ce_parser
+  ce_error
   llvm
   llvm.analysis
   llvm.target

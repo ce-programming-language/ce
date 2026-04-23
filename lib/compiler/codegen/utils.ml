@@ -1,6 +1,7 @@
 open Llvm
 open Ce_parser.Ast
 open State
+open Ce_error
 
 let build_numeric_op lv rv build_int build_float name =
   if type_of lv = double_type ce_ctx then build_float lv rv name !ce_builder
@@ -31,18 +32,13 @@ and resolve_property_ptr env current_ptr current_ty props =
               List.find (fun (n, _, _, _, _) -> n = prop) field_map
             in
             if (not is_pub) && !(env.current_module) <> def_mod then
-              raise
-                (Error
-                   ("Cannot access private property '" ^ prop ^ "' on struct '"
-                  ^ clean_name ^ "'"));
+              raise (Error.cant_access_private_on_struct prop clean_name);
             let next_ptr =
               build_struct_gep actual_ty actual_ptr idx "prop_ptr" !ce_builder
             in
             let next_ty = (struct_element_types actual_ty).(idx) in
             get_gep next_ptr next_ty rest
-        | _ ->
-            raise
-              (Error ("Cannot access property '" ^ prop ^ "' on non-struct")))
+        | _ -> raise (Error.cant_access_prop_on_nonstruct prop))
   in
   get_gep current_ptr current_ty props
 

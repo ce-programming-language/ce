@@ -1,8 +1,6 @@
 open Llvm
 open Ce_parser.Ast
 
-exception Error of string
-
 type compiler_env = {
   type_aliases : (string, types) Hashtbl.t;
   named_values : (string, llvalue * types * bool) Hashtbl.t;
