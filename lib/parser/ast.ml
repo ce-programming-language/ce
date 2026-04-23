@@ -1,8 +1,8 @@
 open Llvm
 
 let ce_ctx = global_context ()
-let ce_module = create_module ce_ctx "ce"
-let ce_builder = builder ce_ctx
+let ce_module = ref (create_module ce_ctx "main")
+let ce_builder = ref (builder ce_ctx)
 
 type loc = {
   line : int;
@@ -92,6 +92,7 @@ and stmt = {
   node : stmt_node;
   docstring : string option;
   is_pub : bool;
+  mod_name : string;
 }
 [@@deriving show]
 

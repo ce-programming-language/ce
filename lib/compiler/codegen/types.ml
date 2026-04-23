@@ -57,7 +57,7 @@ module Make () : TYPES = struct
         | Some (llty, _) -> llty
         | None ->
             let saved_bb =
-              try Some (insertion_block ce_builder) with Not_found -> None
+              try Some (insertion_block !ce_builder) with Not_found -> None
             in
             let params, fields =
               try Hashtbl.find env.struct_templates name
@@ -144,11 +144,13 @@ module Make () : TYPES = struct
                           List.map (fun (p : param) -> p.ty) all_sub_params,
                           sub_ret_ty );
                       let _ =
-                        match Llvm.lookup_function mangled_method ce_module with
+                        match
+                          Llvm.lookup_function mangled_method !ce_module
+                        with
                         | Some existing -> existing
                         | None ->
                             let new_f =
-                              declare_function mangled_method ft ce_module
+                              declare_function mangled_method ft !ce_module
                             in
                             set_linkage Linkage.Internal new_f;
                             new_f
@@ -163,7 +165,7 @@ module Make () : TYPES = struct
             | None -> ());
 
             (match saved_bb with
-            | Some bb -> position_at_end bb ce_builder
+            | Some bb -> position_at_end bb !ce_builder
             | None -> ());
 
             fst (Hashtbl.find env.struct_registry mangled_name))
@@ -204,10 +206,10 @@ module Make () : TYPES = struct
             (ft, List.map (fun (p : param) -> p.ty) sub_params, sub_ret_ty);
 
           let _ =
-            match Llvm.lookup_function mangled_name ce_module with
+            match Llvm.lookup_function mangled_name !ce_module with
             | Some existing -> existing
             | None ->
-                let new_f = declare_function mangled_name ft ce_module in
+                let new_f = declare_function mangled_name ft !ce_module in
                 set_linkage Linkage.Internal new_f;
                 new_f
           in

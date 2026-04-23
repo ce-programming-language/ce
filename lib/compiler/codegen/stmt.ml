@@ -11,7 +11,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
   let rec gen_block env stmts =
     List.iter
       (fun s ->
-        if Option.is_none (block_terminator (insertion_block ce_builder)) then
+        if Option.is_none (block_terminator (insertion_block !ce_builder)) then
           ignore (codegen env s))
       stmts
 
@@ -70,17 +70,22 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
               Expr.coerce_value env s.loc ll_ty raw_val false is_src_u
           | None -> const_null ll_ty
         in
-        let the_function = block_parent (insertion_block ce_builder) in
-        let ce_builder_alloca =
+        let the_function = block_parent (insertion_block !ce_builder) in
+        let alloca_ce_builder =
           builder_at ce_ctx (instr_begin (entry_block the_function))
         in
 
-        let alloca = build_alloca ll_ty name ce_builder_alloca in
-        ignore (Utils.Stmt.gen_assignment ce_builder ll_ty alloca init_val);
+        let alloca = build_alloca ll_ty name alloca_ce_builder in
+        ignore (Utils.Stmt.gen_assignment !ce_builder ll_ty alloca init_val);
 
         Hashtbl.add env.named_values name (alloca, inferred_ty, ismut);
         alloca
     | DefFN (name, tparams, params, ret_ty, body) ->
+        if name = "main" && not s.is_pub then
+          raise
+            (Utils.mk_error s.loc
+               "The main function must be public. Use 'pub fn main'");
+
         if List.length tparams > 0 then begin
           Hashtbl.add env.fn_templates name (tparams, params, ret_ty, body);
           const_null (void_type ce_ctx)
@@ -103,11 +108,11 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           Hashtbl.add env.function_types actual_name
             (ft, List.map (fun (p : param) -> p.ty) params, ret_ty);
 
-          let f = declare_function actual_name ft ce_module in
-          set_linkage Linkage.Internal f;
+          let f = declare_function actual_name ft !ce_module in
+          if not s.is_pub then set_linkage Linkage.Internal f;
 
           let bb = append_block ce_ctx "entry" f in
-          position_at_end bb ce_builder;
+          position_at_end bb !ce_builder;
 
           let old_named_values = Hashtbl.copy env.named_values in
           Array.iteri
@@ -119,20 +124,20 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                 | t -> t
               in
               let llvm_p_ty = Types.llvm_type_of env p_ty in
-              let alloca = build_alloca llvm_p_ty n ce_builder in
-              ignore (build_store a alloca ce_builder);
+              let alloca = build_alloca llvm_p_ty n !ce_builder in
+              ignore (build_store a alloca !ce_builder);
               Hashtbl.add env.named_values n (alloca, p_ty, false))
             (Llvm.params f);
 
           gen_block env body;
 
-          let current_bb = insertion_block ce_builder in
+          let current_bb = insertion_block !ce_builder in
           (match block_terminator current_bb with
           | Some _ -> ()
           | None ->
               if ret_ty = TVoid || !(env.current_fn_is_res) then
                 ignore
-                  (Utils.Stmt.gen_return env ce_builder ce_ctx
+                  (Utils.Stmt.gen_return env !ce_builder ce_ctx
                      (const_null (void_type ce_ctx)))
               else
                 raise
@@ -149,7 +154,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
 
           if name = "main" then begin
             let c_main_ty = function_type (i32_type ce_ctx) [||] in
-            let c_main_f = declare_function "main" c_main_ty ce_module in
+            let c_main_f = declare_function "main" c_main_ty !ce_module in
             let c_bb = append_block ce_ctx "entry" c_main_f in
             let c_builder = builder_at_end ce_ctx c_bb in
 
@@ -171,9 +176,9 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                   [| pointer_type ce_ctx |]
               in
               let printf_f =
-                match Utils.lookup_function env "printf" ce_module with
+                match Utils.lookup_function env "printf" !ce_module with
                 | Some f -> f
-                | None -> declare_function "printf" printf_ty ce_module
+                | None -> declare_function "printf" printf_ty !ce_module
               in
               let fmt_str =
                 build_global_stringptr "Uncaught Error: %s\n" "err_fmt"
@@ -243,7 +248,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
               if is_ptr then
                 build_load
                   (Types.llvm_type_of env ast_ty)
-                  v "auto_deref_ptr" ce_builder
+                  v "auto_deref_ptr" !ce_builder
               else v
             in
 
@@ -266,14 +271,14 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                              ("Cannot assign to immutable field '" ^ prop
                             ^ "' on struct '" ^ clean_name ^ "'"));
                       let next_ptr =
-                        build_struct_gep ty ptr idx "prop_ptr" ce_builder
+                        build_struct_gep ty ptr idx "prop_ptr" !ce_builder
                       in
                       let next_ty = (struct_element_types ty).(idx) in
                       resolve_assign next_ptr next_ty rest
                   | None ->
                       let idx = int_of_string prop in
                       let next_ptr =
-                        build_struct_gep ty ptr idx "tuple_ptr" ce_builder
+                        build_struct_gep ty ptr idx "tuple_ptr" !ce_builder
                       in
                       let next_ty = (struct_element_types ty).(idx) in
                       resolve_assign next_ptr next_ty rest)
@@ -302,7 +307,8 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         let val_to_store =
           Expr.coerce_value env s.loc expected_ll_ty val_ is_u is_src_u
         in
-        Utils.Stmt.gen_assignment ce_builder expected_ll_ty var_ptr val_to_store
+        Utils.Stmt.gen_assignment !ce_builder expected_ll_ty var_ptr
+          val_to_store
     | ArrayAssign (name, index_expr, val_expr) ->
         let array_ptr_val, array_ty =
           match Hashtbl.find_opt env.named_values name with
@@ -326,10 +332,10 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         let element_ptr =
           build_in_bounds_gep
             (Types.llvm_type_of env array_ty)
-            array_ptr_val indices "arrayidx" ce_builder
+            array_ptr_val indices "arrayidx" !ce_builder
         in
         let expected_ll_ty = element_type (Types.llvm_type_of env array_ty) in
-        Utils.Stmt.gen_assignment ce_builder expected_ll_ty element_ptr
+        Utils.Stmt.gen_assignment !ce_builder expected_ll_ty element_ptr
           val_to_store
     | DerefAssign (ptr_expr, val_expr) ->
         let actual_ptr = Expr.codegen env codegen ptr_expr in
@@ -355,7 +361,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
             (is_unsigned expected_ast_ty)
             is_src_u
         in
-        Utils.Stmt.gen_assignment ce_builder expected_ll_ty actual_ptr
+        Utils.Stmt.gen_assignment !ce_builder expected_ll_ty actual_ptr
           val_to_store
     | Block stmts ->
         gen_block env stmts;
@@ -383,34 +389,34 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           (match init with Some s -> ignore (codegen env s) | None -> ());
 
           let[@warning "-8"] [ cond_bb; loop_bb; mut_bb; after_bb ] =
-            Utils.create_blocks ce_ctx ce_builder
+            Utils.create_blocks ce_ctx !ce_builder
               [ "loop_cond"; "loop"; "loop_mut"; "afterloop" ]
           in
 
-          ignore (build_br cond_bb ce_builder);
+          ignore (build_br cond_bb !ce_builder);
 
-          position_at_end cond_bb ce_builder;
+          position_at_end cond_bb !ce_builder;
           (match cond with
           | Some c ->
               let cond_val = Expr.codegen env codegen c in
-              ignore (build_cond_br cond_val loop_bb after_bb ce_builder)
-          | None -> ignore (build_br loop_bb ce_builder));
+              ignore (build_cond_br cond_val loop_bb after_bb !ce_builder)
+          | None -> ignore (build_br loop_bb !ce_builder));
 
-          position_at_end loop_bb ce_builder;
+          position_at_end loop_bb !ce_builder;
           Stack.push after_bb env.loop_exit_blocks;
 
           gen_block env stmts;
 
-          if Option.is_none (block_terminator (insertion_block ce_builder)) then
-            ignore (build_br mut_bb ce_builder);
+          if Option.is_none (block_terminator (insertion_block !ce_builder))
+          then ignore (build_br mut_bb !ce_builder);
 
-          position_at_end mut_bb ce_builder;
+          position_at_end mut_bb !ce_builder;
           (match mut with Some m -> ignore (codegen env m) | None -> ());
 
-          ignore (build_br cond_bb ce_builder);
+          ignore (build_br cond_bb !ce_builder);
 
           ignore (Stack.pop env.loop_exit_blocks);
-          position_at_end after_bb ce_builder;
+          position_at_end after_bb !ce_builder;
 
           (match init_var_name with
           | Some n -> Hashtbl.remove env.named_values n
@@ -423,23 +429,23 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         let iter_ast_ty = infer_ast_type env iter_expr in
 
         let[@warning "-8"] [ cond_bb; loop_bb; after_bb ] =
-          Utils.create_blocks ce_ctx ce_builder
+          Utils.create_blocks ce_ctx !ce_builder
             [ "foreach_cond"; "foreach_loop"; "afterforeach" ]
         in
 
         let is_array = match iter_ast_ty with TArray _ -> true | _ -> false in
 
         let idx_alloc =
-          build_alloca (i32_type ce_ctx) "foreach_idx" ce_builder
+          build_alloca (i32_type ce_ctx) "foreach_idx" !ce_builder
         in
         ignore
-          (Utils.Stmt.gen_assignment ce_builder (i32_type ce_ctx) idx_alloc
+          (Utils.Stmt.gen_assignment !ce_builder (i32_type ce_ctx) idx_alloc
              (const_int (i32_type ce_ctx) 0));
 
-        ignore (build_br cond_bb ce_builder);
-        position_at_end cond_bb ce_builder;
+        ignore (build_br cond_bb !ce_builder);
+        position_at_end cond_bb !ce_builder;
         let current_idx =
-          build_load (i32_type ce_ctx) idx_alloc "curr_idx" ce_builder
+          build_load (i32_type ce_ctx) idx_alloc "curr_idx" !ce_builder
         in
 
         let len_val =
@@ -447,14 +453,14 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
             match iter_ast_ty with
             | TArray (n, _) -> const_int (i32_type ce_ctx) n
             | _ -> failwith ""
-          else build_extractvalue iter_val 1 "slice_len" ce_builder
+          else build_extractvalue iter_val 1 "slice_len" !ce_builder
         in
         let cmp =
-          build_icmp Icmp.Slt current_idx len_val "foreach_cmp" ce_builder
+          build_icmp Icmp.Slt current_idx len_val "foreach_cmp" !ce_builder
         in
-        ignore (build_cond_br cmp loop_bb after_bb ce_builder);
+        ignore (build_cond_br cmp loop_bb after_bb !ce_builder);
 
-        position_at_end loop_bb ce_builder;
+        position_at_end loop_bb !ce_builder;
         Stack.push after_bb env.loop_exit_blocks;
 
         (match idx_name_opt with
@@ -470,31 +476,31 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                 let arr_tmp =
                   build_alloca
                     (Types.llvm_type_of env iter_ast_ty)
-                    "arr_tmp" ce_builder
+                    "arr_tmp" !ce_builder
                 in
-                ignore (build_store iter_val arr_tmp ce_builder);
+                ignore (build_store iter_val arr_tmp !ce_builder);
                 let zero = const_int (i32_type ce_ctx) 0 in
                 let gep =
                   build_in_bounds_gep
                     (Types.llvm_type_of env iter_ast_ty)
-                    arr_tmp [| zero; current_idx |] "arr_gep" ce_builder
+                    arr_tmp [| zero; current_idx |] "arr_gep" !ce_builder
                 in
                 build_load
                   (element_type (Types.llvm_type_of env iter_ast_ty))
-                  gep "arr_elem" ce_builder
+                  gep "arr_elem" !ce_builder
               end
               else begin
                 let slice_ptr =
-                  build_extractvalue iter_val 0 "slice_ptr" ce_builder
+                  build_extractvalue iter_val 0 "slice_ptr" !ce_builder
                 in
                 let gep =
                   build_in_bounds_gep
                     (element_type (type_of slice_ptr))
-                    slice_ptr [| current_idx |] "slice_gep" ce_builder
+                    slice_ptr [| current_idx |] "slice_gep" !ce_builder
                 in
                 build_load
                   (element_type (type_of slice_ptr))
-                  gep "slice_elem" ce_builder
+                  gep "slice_elem" !ce_builder
               end
             in
             let elem_ast_ty =
@@ -504,9 +510,9 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
               | _ -> TUnknown
             in
             let val_alloc =
-              build_alloca (type_of elem_val) val_name ce_builder
+              build_alloca (type_of elem_val) val_name !ce_builder
             in
-            ignore (build_store elem_val val_alloc ce_builder);
+            ignore (build_store elem_val val_alloc !ce_builder);
             Hashtbl.add env.named_values val_name (val_alloc, elem_ast_ty, false)
         | None -> ());
 
@@ -519,29 +525,29 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         | Some val_name -> Hashtbl.remove env.named_values val_name
         | None -> ());
 
-        if Option.is_none (block_terminator (insertion_block ce_builder)) then begin
+        if Option.is_none (block_terminator (insertion_block !ce_builder)) then begin
           let next_idx =
             build_add current_idx
               (const_int (i32_type ce_ctx) 1)
-              "next_idx" ce_builder
+              "next_idx" !ce_builder
           in
-          ignore (build_store next_idx idx_alloc ce_builder);
-          ignore (build_br cond_bb ce_builder)
+          ignore (build_store next_idx idx_alloc !ce_builder);
+          ignore (build_br cond_bb !ce_builder)
         end;
 
         ignore (Stack.pop env.loop_exit_blocks);
-        position_at_end after_bb ce_builder;
+        position_at_end after_bb !ce_builder;
 
         const_null (void_type ce_ctx)
     | Break ->
         if Stack.is_empty env.loop_exit_blocks then
           raise (Utils.mk_error s.loc "Break outside of a loop");
         let exit_block = Stack.top env.loop_exit_blocks in
-        ignore (build_br exit_block ce_builder);
+        ignore (build_br exit_block !ce_builder);
         const_null (void_type ce_ctx)
     | Return e ->
         let v = Expr.codegen env codegen e in
-        Utils.Stmt.gen_return env ce_builder ce_ctx v
+        Utils.Stmt.gen_return env !ce_builder ce_ctx v
     | Import _ -> const_null (void_type ce_ctx)
     | ImportFrom _ -> const_null (void_type ce_ctx)
     | Impl (name, params, methods) ->
@@ -588,10 +594,10 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
               Hashtbl.replace env.function_types mangled_name
                 (ft, List.map (fun (p : param) -> p.ty) all_params, ret_ty);
               let _ =
-                match Llvm.lookup_function mangled_name ce_module with
+                match Llvm.lookup_function mangled_name !ce_module with
                 | Some existing -> existing
                 | None ->
-                    let new_f = declare_function mangled_name ft ce_module in
+                    let new_f = declare_function mangled_name ft !ce_module in
                     set_linkage Linkage.Internal new_f;
                     new_f
               in
@@ -606,8 +612,8 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
     | Raise e ->
         let err_msg = Expr.codegen env codegen e in
         let ret_ty = !(env.current_fn_ret_ty) in
-        let res_struct = gen_err_result ce_ctx ce_builder ret_ty err_msg in
-        ignore (build_ret res_struct ce_builder);
+        let res_struct = gen_err_result ce_ctx !ce_builder ret_ty err_msg in
+        ignore (build_ret res_struct !ce_builder);
         const_null (void_type ce_ctx)
     | DefInterface (name, sigs) ->
         Hashtbl.add env.interface_registry name sigs;
@@ -625,9 +631,9 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           (ft, List.map (fun (p : param) -> p.ty) params, ret_ty);
 
         let _ =
-          match Llvm.lookup_function c_name ce_module with
+          match Llvm.lookup_function c_name !ce_module with
           | Some f -> f
-          | None -> declare_function c_name ft ce_module
+          | None -> declare_function c_name ft !ce_module
         in
         const_null (void_type ce_ctx)
 end

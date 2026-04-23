@@ -20,6 +20,7 @@ let register context the_module builder registry =
         let any_ty = struct_type context [| ptr_ty; ptr_ty |] in
         let ft = function_type (void_type context) [| any_ty |] in
         let f = declare_function "__print_any" ft the_module in
+        set_linkage Linkage.Internal f;
 
         let saved_bb = insertion_block builder in
         let bb = append_block context "entry" f in

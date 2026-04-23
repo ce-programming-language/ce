@@ -2,9 +2,12 @@ open Ce_compiler
 open Cmdliner
 open Llvm
 
-let dump m =
-  let module_string = string_of_llmodule m in
-  print_endline module_string
+let dump modules =
+  List.iter
+    (fun (mname, m) ->
+      print_endline ("\n=== Module: " ^ mname ^ " ===");
+      print_endline (string_of_llmodule m))
+    modules
 
 let execute file =
   let visited = Hashtbl.create 10 in

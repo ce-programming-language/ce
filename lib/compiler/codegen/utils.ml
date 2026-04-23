@@ -3,8 +3,8 @@ open Ce_parser.Ast
 open State
 
 let build_numeric_op lv rv build_int build_float name =
-  if type_of lv = double_type ce_ctx then build_float lv rv name ce_builder
-  else build_int lv rv name ce_builder
+  if type_of lv = double_type ce_ctx then build_float lv rv name !ce_builder
+  else build_int lv rv name !ce_builder
 
 and resolve_property_ptr env current_ptr current_ty props =
   let rec get_gep ptr ty props =
@@ -13,7 +13,7 @@ and resolve_property_ptr env current_ptr current_ty props =
     | prop :: rest -> (
         let actual_ptr, actual_ty =
           if classify_type ty = TypeKind.Pointer then
-            (build_load ty ptr "deref_ptr" ce_builder, element_type ty)
+            (build_load ty ptr "deref_ptr" !ce_builder, element_type ty)
           else (ptr, ty)
         in
         match classify_type actual_ty with
@@ -29,7 +29,7 @@ and resolve_property_ptr env current_ptr current_ty props =
               List.find (fun (n, _, _, _) -> n = prop) field_map
             in
             let next_ptr =
-              build_struct_gep actual_ty actual_ptr idx "prop_ptr" ce_builder
+              build_struct_gep actual_ty actual_ptr idx "prop_ptr" !ce_builder
             in
             let next_ty = (struct_element_types actual_ty).(idx) in
             get_gep next_ptr next_ty rest
@@ -69,17 +69,22 @@ and ast_base_type_name = function
   | _ -> raise Not_found
 
 and build_ptr_arith lv rv op name =
-  let ptr_int = build_ptrtoint lv (i64_type ce_ctx) "pti" ce_builder in
-  let rv_i64 = build_intcast rv (i64_type ce_ctx) "rv_i64" ce_builder in
+  let ptr_int = build_ptrtoint lv (i64_type ce_ctx) "pti" !ce_builder in
+  let rv_i64 = build_intcast rv (i64_type ce_ctx) "rv_i64" !ce_builder in
   build_inttoptr
-    (op ptr_int rv_i64 name ce_builder)
-    (type_of lv) "itp" ce_builder
+    (op ptr_int rv_i64 name !ce_builder)
+    (type_of lv) "itp" !ce_builder
 
 and lookup_function env name m =
   let real_name =
     try Hashtbl.find env.extern_aliases name with Not_found -> name
   in
-  Llvm.lookup_function real_name m
+  match Llvm.lookup_function real_name m with
+  | Some f -> Some f
+  | None -> (
+      match Hashtbl.find_opt env.function_types real_name with
+      | Some (ft, _, _) -> Some (Llvm.declare_function real_name ft m)
+      | None -> None)
 
 let next_builtin_id = ref (-1)
 
@@ -104,7 +109,14 @@ let mk_stmt (n : stmt_node) : stmt =
   let loc =
     { line = 0; col = 0; end_line = 0; end_col = 0; file = "<builtin>" }
   in
-  { id = get_builtin_id (); loc; node = n; docstring = None; is_pub = false }
+  {
+    id = get_builtin_id ();
+    loc;
+    node = n;
+    docstring = None;
+    is_pub = false;
+    mod_name = "main";
+  }
 
 let mk_error (loc : loc) msg =
   Error (Printf.sprintf "%s:%d:%d: %s" loc.file loc.line loc.col msg)
@@ -195,8 +207,8 @@ module Expr = struct
         build_numeric_op l_val r_val
           (build_icmp (if is_unsigned_ty then Icmp.Uge else Icmp.Sge))
           (build_fcmp Fcmp.Oge) "gtetmp"
-    | `And -> build_and l_val r_val "andtmp" ce_builder
-    | `Or -> build_or l_val r_val "ortmp" ce_builder
+    | `And -> build_and l_val r_val "andtmp" !ce_builder
+    | `Or -> build_or l_val r_val "ortmp" !ce_builder
 end
 
 module Stmt = struct

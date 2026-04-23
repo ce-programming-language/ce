@@ -26,6 +26,7 @@
       loc = make_loc start_pos end_pos; 
       node; 
       is_pub;
+      mod_name = "main";
       docstring = None }
 
   let mk_stmt_pub start_pos end_pos (node: stmt_node): stmt = 

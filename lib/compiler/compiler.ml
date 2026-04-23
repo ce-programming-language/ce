@@ -21,14 +21,41 @@ let optimize the_module =
 
 let compile (stmts : stmt list) =
   let env = State.create_env ce_ctx in
-  Builtin.initialize ce_ctx ce_module ce_builder;
-  List.iter (fun s -> ignore (Stmt.codegen env s)) stmts;
+  let modules_map = Hashtbl.create 10 in
+
+  let get_module mname =
+    try Hashtbl.find modules_map mname
+    with Not_found ->
+      let m = create_module ce_ctx mname in
+      let b = builder ce_ctx in
+      Builtin.initialize ce_ctx m b;
+      Hashtbl.add modules_map mname (m, b);
+      (m, b)
+  in
+
+  List.iter
+    (fun s ->
+      let m, b = get_module s.mod_name in
+      ce_module := m;
+      ce_builder := b;
+      ignore (Stmt.codegen env s))
+    stmts;
+
   let rec process_pending () =
     if not (Queue.is_empty env.pending_instantiations) then begin
       let stmt = Queue.pop env.pending_instantiations in
+      let m, b = get_module stmt.mod_name in
+      ce_module := m;
+      ce_builder := b;
       ignore (Stmt.codegen env stmt);
       process_pending ()
     end
   in
   process_pending ();
-  optimize ce_module
+
+  let generated_modules = ref [] in
+  Hashtbl.iter
+    (fun mname (m, _) ->
+      generated_modules := (mname, optimize m) :: !generated_modules)
+    modules_map;
+  !generated_modules

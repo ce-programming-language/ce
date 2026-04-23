@@ -105,15 +105,23 @@ class namespacer prefix decls =
 
 let namespace_stmt prefix decls ast = (new namespacer prefix decls)#map_stmt ast
 
-let rec process_file_inner visited filepath namespace_prefix =
+let rec process_file_inner visited filepath namespace_prefix mod_name =
   let cache_key =
-    filepath ^ match namespace_prefix with Some p -> ":" ^ p | None -> ":none"
+    filepath
+    ^ (match namespace_prefix with Some p -> ":" ^ p | None -> ":none")
+    ^ ":" ^ mod_name
   in
   if Hashtbl.mem visited cache_key then []
   else begin
     Hashtbl.add visited cache_key true;
     let src = read filepath in
-    let ast = parse filepath src in
+
+    (* Force the AST to use the explicitly passed mod_name *)
+    let ast =
+      parse filepath src
+      |> List.map (fun s -> { s with Ce_parser.Ast.mod_name })
+    in
+
     let decls =
       List.fold_left
         (fun acc stmt ->
@@ -145,10 +153,18 @@ let rec process_file_inner visited filepath namespace_prefix =
           | Import path_list ->
               let import_path = resolve_import path_list in
               let module_name = List.hd (List.rev path_list) in
-              acc @ process_file_inner visited import_path (Some module_name)
+              acc
+              @ process_file_inner visited import_path (Some module_name)
+                  module_name
           | ImportFrom (names, path_list) ->
               let import_path = resolve_import path_list in
-              let raw_ast = process_file_inner visited import_path None in
+              let module_name = List.hd (List.rev path_list) in
+
+              (* Pass 'module_name' so it goes to the right LLVM module, but keep namespace 'None' *)
+              let raw_ast =
+                process_file_inner visited import_path None module_name
+              in
+
               let filtered_ast =
                 List.filter
                   (fun s ->
@@ -166,11 +182,9 @@ let rec process_file_inner visited filepath namespace_prefix =
                       match s.node with Impl _ -> true | _ -> false
                     in
                     if is_match && (not s.is_pub) && not is_impl then
-                      raise
-                        (Error
-                           ("Error: Cannot import " ^ String.concat ", " names
-                          ^ " from module "
-                           ^ String.concat "," path_list));
+                      failwith
+                        ("Error: Cannot import a private item from module "
+                       ^ module_name);
                     is_match)
                   raw_ast
               in
@@ -189,16 +203,16 @@ let process_file visited filepath =
         if Sys.file_exists "std/std.ce" then "std/std.ce"
         else resolve_import [ "std"; "std" ]
       in
-      process_file_inner visited std_path None
+      process_file_inner visited std_path None "std"
     with e ->
       Printf.eprintf "%s\n" (Printexc.to_string e);
       []
   in
 
-  let main_ast = process_file_inner visited filepath None in
+  let main_ast = process_file_inner visited filepath None "main" in
   prelude_ast @ main_ast
 
-let export binary_name the_module =
+let export binary_name the_modules =
   ignore (Llvm_all_backends.initialize ());
   let target_triple = Target.default_triple () in
   let target = Target.by_triple target_triple in
@@ -206,14 +220,26 @@ let export binary_name the_module =
     TargetMachine.create ~triple:target_triple ~reloc_mode:RelocMode.PIC target
   in
 
-  let obj_filename = binary_name ^ ".o" in
-  TargetMachine.emit_to_file the_module CodeGenFileType.ObjectFile obj_filename
-    machine;
+  let obj_files =
+    List.map
+      (fun (mname, m) ->
+        let safe_mname =
+          String.map
+            (fun c -> if c = '/' || c = '\\' || c = '.' then '_' else c)
+            mname
+        in
+        let obj_filename = binary_name ^ "_" ^ safe_mname ^ ".o" in
+        TargetMachine.emit_to_file m CodeGenFileType.ObjectFile obj_filename
+          machine;
+        obj_filename)
+      the_modules
+  in
 
-  let link_cmd = Printf.sprintf "cc %s -lgc -o %s" obj_filename binary_name in
+  let objs_str = String.concat " " obj_files in
+  let link_cmd = Printf.sprintf "cc %s -lgc -o %s" objs_str binary_name in
   match Sys.command link_cmd with
   | 0 ->
-      if Sys.file_exists obj_filename then Sys.remove obj_filename;
+      List.iter (fun o -> if Sys.file_exists o then Sys.remove o) obj_files;
       ()
   | code ->
       Printf.eprintf "Linking failed with code %d\n" code;
