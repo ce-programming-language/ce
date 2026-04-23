@@ -255,8 +255,8 @@ struct_field_list:
   | f = struct_field sep rest = struct_field_list               { f :: rest }
 
 struct_field:
-  | name = IDENT ty = types             { { field_name = name; ty = ty; is_mut = false } }
-  | MUT name = IDENT ty = types         { { field_name = name; ty = ty; is_mut = true } }
+  | p = pub_opt name = IDENT ty = types             { { field_name = name; ty = ty; is_mut = false; is_pub = p } }
+  | p = pub_opt MUT name = IDENT ty = types         { { field_name = name; ty = ty; is_mut = true; is_pub = p } }
 
 struct_init_list:
   | f = struct_init_field                                            { [f] }
@@ -294,14 +294,14 @@ impl_method_list:
   | m = impl_method sep_opt rest = impl_method_list { m :: rest }
 
 impl_method:
-  | FN name = IDENT LPAREN self_id = IDENT RPAREN ret_ty = types LBRACE sep_opt body = stmt_list RBRACE
-    { (name, self_id, false, [], ret_ty, body) }
-  | FN name = IDENT LPAREN AMP self_id = IDENT RPAREN ret_ty = types LBRACE sep_opt body = stmt_list RBRACE
-    { (name, self_id, true, [], ret_ty, body) }
-  | FN name = IDENT LPAREN self_id = IDENT COMMA params = separated_list(COMMA, param) RPAREN ret_ty = types LBRACE sep_opt body = stmt_list RBRACE
-    { (name, self_id, false, params, ret_ty, body) }
-  | FN name = IDENT LPAREN AMP self_id = IDENT COMMA params = separated_list(COMMA, param) RPAREN ret_ty = types LBRACE sep_opt body = stmt_list RBRACE
-    { (name, self_id, true, params, ret_ty, body) }
+  | p = pub_opt FN name = IDENT LPAREN self_id = IDENT RPAREN ret_ty = types LBRACE sep_opt body = stmt_list RBRACE
+    { (name, p, self_id, false, [], ret_ty, body) }
+  | p = pub_opt FN name = IDENT LPAREN AMP self_id = IDENT RPAREN ret_ty = types LBRACE sep_opt body = stmt_list RBRACE
+    { (name, p, self_id, true, [], ret_ty, body) }
+  | p = pub_opt FN name = IDENT LPAREN self_id = IDENT COMMA params = separated_list(COMMA, param) RPAREN ret_ty = types LBRACE sep_opt body = stmt_list RBRACE
+    { (name, p, self_id, false, params, ret_ty, body) }
+  | p = pub_opt FN name = IDENT LPAREN AMP self_id = IDENT COMMA params = separated_list(COMMA, param) RPAREN ret_ty = types LBRACE sep_opt body = stmt_list RBRACE
+    { (name, p, self_id, true, params, ret_ty, body) }
 
 impl_target:
   | id = IDENT { id }

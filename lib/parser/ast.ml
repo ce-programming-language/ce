@@ -83,7 +83,14 @@ and expr_node =
 [@@deriving show]
 
 and param = { param_name : string; ty : types }
-and struct_field = { field_name : string; ty : types; is_mut : bool }
+
+and struct_field = {
+  field_name : string;
+  ty : types;
+  is_mut : bool;
+  is_pub : bool;
+}
+
 and fn_signature = { fn_name : string; params : param list; ret_ty : types }
 
 and stmt = {
@@ -106,7 +113,7 @@ and stmt_node =
   | Impl of
       string
       * (string * types) list
-      * (string * string * bool * param list * types * stmt list) list
+      * (string * bool * string * bool * param list * types * stmt list) list
   | ArrayAssign of string * expr * expr
   | DerefAssign of expr * expr
   | Return of expr

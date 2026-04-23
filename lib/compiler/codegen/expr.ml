@@ -336,13 +336,22 @@ module Make (Types : TYPES) : EXPR = struct
                             match
                               Hashtbl.find_opt env.struct_registry clean_name
                             with
-                            | Some (_, field_map) -> (
+                            | Some (_, field_map, def_mod) -> (
                                 try
-                                  let _, idx, _, _ =
+                                  let _, idx, _, _, is_pub =
                                     List.find
-                                      (fun (n, _, _, _) -> n = prop)
+                                      (fun (n, _, _, _, _) -> n = prop)
                                       field_map
                                   in
+                                  if
+                                    (not is_pub)
+                                    && !(env.current_module) <> def_mod
+                                  then
+                                    raise
+                                      (Utils.mk_error e.loc
+                                         ("Cannot access private property '"
+                                        ^ prop ^ "' on struct '" ^ clean_name
+                                        ^ "'"));
                                   let next_val =
                                     build_extractvalue current_val idx "proptmp"
                                       !ce_builder
@@ -513,8 +522,19 @@ module Make (Types : TYPES) : EXPR = struct
                           (String.length name - last_dot_idx - 1)
                       in
 
-                      if Hashtbl.mem env.struct_registry base_path then
+                      if Hashtbl.mem env.struct_registry base_path then (
                         let mangled_name = base_path ^ "::" ^ method_name in
+                        (match
+                           Hashtbl.find_opt env.method_registry mangled_name
+                         with
+                        | Some (is_pub, def_mod) ->
+                            if (not is_pub) && !(env.current_module) <> def_mod
+                            then
+                              raise
+                                (Utils.mk_error e.loc
+                                   ("Cannot call private method '" ^ method_name
+                                  ^ "' on struct"))
+                        | None -> ());
                         let callee =
                           match lookup_function env mangled_name !ce_module with
                           | Some c -> c
@@ -537,7 +557,7 @@ module Make (Types : TYPES) : EXPR = struct
                           if return_type ft = void_type ce_ctx then ""
                           else "staticcalltmp"
                         in
-                        build_call ft callee args_val call_name !ce_builder
+                        build_call ft callee args_val call_name !ce_builder)
                       else
                         let self_val =
                           try
@@ -1133,7 +1153,7 @@ module Make (Types : TYPES) : EXPR = struct
           if type_args = [] then name
           else name ^ "_" ^ String.concat "_" (List.map show_types type_args)
         in
-        let llty, field_map =
+        let llty, field_map, def_mod =
           try Hashtbl.find env.struct_registry mangled_name
           with Not_found ->
             raise
@@ -1142,12 +1162,17 @@ module Make (Types : TYPES) : EXPR = struct
         in
         let alloc = build_alloca llty "structtmp" !ce_builder in
         ignore (build_store (const_null llty) alloc !ce_builder);
-
         List.iter
           (fun (fname, fexpr) ->
-            let _, fidx, _, _ =
-              List.find (fun (n, _, _, _) -> n = fname) field_map
+            let _, fidx, _, _, is_pub =
+              List.find (fun (n, _, _, _, _) -> n = fname) field_map
             in
+            if (not is_pub) && !(env.current_module) <> def_mod then
+              raise
+                (Utils.mk_error e.loc
+                   ("Cannot initialize private property '" ^ fname
+                  ^ "' on struct"));
+
             let fptr =
               build_struct_gep llty alloc fidx "fieldptr" !ce_builder
             in

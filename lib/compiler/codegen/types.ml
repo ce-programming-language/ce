@@ -28,7 +28,7 @@ module Make () : TYPES = struct
         | Some actual_ty -> llvm_type_of env actual_ty
         | None -> (
             match Hashtbl.find_opt env.struct_registry name with
-            | Some (llty, _) -> llty
+            | Some (llty, _, _) -> llty
             | None -> (
                 match Hashtbl.find_opt env.interface_registry name with
                 | Some _ ->
@@ -37,7 +37,7 @@ module Make () : TYPES = struct
                 | None -> raise (Error ("Undefined type: " ^ name)))))
     | TStruct name -> (
         try
-          let llty, _ = Hashtbl.find env.struct_registry name in
+          let llty, _, _ = Hashtbl.find env.struct_registry name in
           llty
         with Not_found -> raise (Error ("Unknown struct '" ^ name ^ "'")))
     | TUnknown -> raise (Error "Cannot compile unknown type")
@@ -54,12 +54,12 @@ module Make () : TYPES = struct
           name ^ "_" ^ String.concat "_" (List.map show_types arg_types)
         in
         match Hashtbl.find_opt env.struct_registry mangled_name with
-        | Some (llty, _) -> llty
+        | Some (llty, _, _) -> llty
         | None ->
             let saved_bb =
               try Some (insertion_block !ce_builder) with Not_found -> None
             in
-            let params, fields =
+            let params, fields, def_mod =
               try Hashtbl.find env.struct_templates name
               with Not_found ->
                 if name = "slices.Slice" then
@@ -84,32 +84,38 @@ module Make () : TYPES = struct
                     field_name = f.field_name;
                     ty = substitute_type type_map f.ty;
                     is_mut = f.is_mut;
+                    is_pub = f.is_pub;
                   })
                 fields
             in
 
             let struct_llty = named_struct_type ce_ctx mangled_name in
-            Hashtbl.add env.struct_registry mangled_name (struct_llty, []);
-
+            Hashtbl.add env.struct_registry mangled_name
+              (struct_llty, [], def_mod);
             let field_types =
               Array.of_list
                 (List.map (fun f -> llvm_type_of env f.ty) specialized_fields)
             in
             struct_set_body struct_llty field_types false;
-
             let field_map =
               List.mapi
-                (fun i f -> (f.field_name, i, f.is_mut, f.ty))
+                (fun i f -> (f.field_name, i, f.is_mut, f.ty, f.is_pub))
                 specialized_fields
             in
             Hashtbl.replace env.struct_registry mangled_name
-              (struct_llty, field_map);
+              (struct_llty, field_map, def_mod);
 
             (match Hashtbl.find_opt env.impl_templates name with
-            | Some (_, methods) ->
+            | Some (_, methods, def_impl_mod) ->
                 let specialized_methods =
                   List.map
-                    (fun (m_name, self_id, is_ptr, m_params, ret_ty, body) ->
+                    (fun ( m_name,
+                           is_pub,
+                           self_id,
+                           is_ptr,
+                           m_params,
+                           ret_ty,
+                           body ) ->
                       let sub_params =
                         List.map
                           (fun (p : param) ->
@@ -143,6 +149,10 @@ module Make () : TYPES = struct
                         ( ft,
                           List.map (fun (p : param) -> p.ty) all_sub_params,
                           sub_ret_ty );
+
+                      Hashtbl.replace env.method_registry mangled_method
+                        (is_pub, def_impl_mod);
+
                       let _ =
                         match
                           Llvm.lookup_function mangled_method !ce_module
@@ -152,11 +162,18 @@ module Make () : TYPES = struct
                             let new_f =
                               declare_function mangled_method ft !ce_module
                             in
-                            set_linkage Linkage.Internal new_f;
+                            if not is_pub then
+                              set_linkage Linkage.Internal new_f;
                             new_f
                       in
 
-                      (m_name, self_id, is_ptr, sub_params, sub_ret_ty, sub_body))
+                      ( m_name,
+                        is_pub,
+                        self_id,
+                        is_ptr,
+                        sub_params,
+                        sub_ret_ty,
+                        sub_body ))
                     methods
                 in
                 Queue.push
@@ -167,8 +184,8 @@ module Make () : TYPES = struct
             (match saved_bb with
             | Some bb -> position_at_end bb !ce_builder
             | None -> ());
-
-            fst (Hashtbl.find env.struct_registry mangled_name))
+            let llty, _, _ = Hashtbl.find env.struct_registry mangled_name in
+            llty)
     | TTuple ts ->
         struct_type ce_ctx (Array.of_list (List.map (llvm_type_of env) ts))
     | TFn _ -> struct_type ce_ctx [| pointer_type ce_ctx; pointer_type ce_ctx |]

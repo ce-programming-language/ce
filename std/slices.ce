@@ -127,7 +127,7 @@ impl Slice<T any> {
   }
 }
 
-fn new<T any>(cap int) Slice<T> {
+pub fn new<T any>(cap int) Slice<T> {
   let s Slice<T> = Slice<T>{ptr = malloc<T>(cap); len = cap; cap = cap}
   return s
 }

@@ -24,10 +24,17 @@ and resolve_property_ptr env current_ptr current_ty props =
                 String.sub s_name 7 (String.length s_name - 7)
               else s_name
             in
-            let _, field_map = Hashtbl.find env.struct_registry clean_name in
-            let _, idx, _, _ =
-              List.find (fun (n, _, _, _) -> n = prop) field_map
+            let _, field_map, def_mod =
+              Hashtbl.find env.struct_registry clean_name
             in
+            let _, idx, _, _, is_pub =
+              List.find (fun (n, _, _, _, _) -> n = prop) field_map
+            in
+            if (not is_pub) && !(env.current_module) <> def_mod then
+              raise
+                (Error
+                   ("Cannot access private property '" ^ prop ^ "' on struct '"
+                  ^ clean_name ^ "'"));
             let next_ptr =
               build_struct_gep actual_ty actual_ptr idx "prop_ptr" !ce_builder
             in

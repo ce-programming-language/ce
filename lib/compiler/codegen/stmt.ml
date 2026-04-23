@@ -16,6 +16,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
       stmts
 
   and codegen (env : State.compiler_env) (s : stmt) =
+    env.current_module := s.mod_name;
     match s.node with
     | Expr e ->
         let v = Expr.codegen env codegen e in
@@ -205,29 +206,34 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         const_null (void_type ce_ctx)
     | DefStruct (name, params, fields) ->
         if List.length params > 0 then begin
-          Hashtbl.add env.struct_templates name (params, fields);
+          Hashtbl.add env.struct_templates name
+            (params, fields, !(env.current_module));
           const_null (void_type ce_ctx)
         end
         else
           begin if not (Hashtbl.mem env.struct_registry name) then begin
             let struct_llty = named_struct_type ce_ctx name in
-            Hashtbl.add env.struct_registry name (struct_llty, []);
-
+            Hashtbl.add env.struct_registry name
+              (struct_llty, [], !(env.current_module));
             Queue.push s env.pending_instantiations;
             const_null (void_type ce_ctx)
           end
           else begin
-            let struct_llty, _ = Hashtbl.find env.struct_registry name in
+            let struct_llty, _, def_mod =
+              Hashtbl.find env.struct_registry name
+            in
             let field_types =
               Array.of_list
                 (List.map (fun f -> Types.llvm_type_of env f.ty) fields)
             in
             struct_set_body struct_llty field_types false;
-
             let field_map =
-              List.mapi (fun i f -> (f.field_name, i, f.is_mut, f.ty)) fields
+              List.mapi
+                (fun i f -> (f.field_name, i, f.is_mut, f.ty, f.is_pub))
+                fields
             in
-            Hashtbl.replace env.struct_registry name (struct_llty, field_map);
+            Hashtbl.replace env.struct_registry name
+              (struct_llty, field_map, def_mod);
             const_null (void_type ce_ctx)
           end
           end
@@ -259,12 +265,17 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                   match struct_name ty with
                   | Some s_name ->
                       let clean_name = clean_struct_name s_name in
-                      let _, field_map =
+                      let _, field_map, def_mod =
                         Hashtbl.find env.struct_registry clean_name
                       in
-                      let _, idx, is_mut, _ =
-                        List.find (fun (n, _, _, _) -> n = prop) field_map
+                      let _, idx, is_mut, _, is_pub =
+                        List.find (fun (n, _, _, _, _) -> n = prop) field_map
                       in
+                      if (not is_pub) && !(env.current_module) <> def_mod then
+                        raise
+                          (Utils.mk_error s.loc
+                             ("Cannot assign to private property '" ^ prop
+                            ^ "' on struct '" ^ clean_name ^ "'"));
                       if rest = [] && not is_mut then
                         raise
                           (Utils.mk_error s.loc
@@ -552,12 +563,14 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
     | ImportFrom _ -> const_null (void_type ce_ctx)
     | Impl (name, params, methods) ->
         if List.length params > 0 then begin
-          Hashtbl.add env.impl_templates name (params, methods);
+          Hashtbl.add env.impl_templates name
+            (params, methods, !(env.current_module));
           const_null (void_type ce_ctx)
         end
         else begin
           List.iter
-            (fun (method_name, self_id, is_ptr, m_params, ret_ty, body) ->
+            (fun (method_name, is_pub, self_id, is_ptr, m_params, ret_ty, body)
+               ->
               let mangled_name = name ^ "::" ^ method_name in
               let base_ty =
                 match name with
@@ -593,6 +606,8 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
               in
               Hashtbl.replace env.function_types mangled_name
                 (ft, List.map (fun (p : param) -> p.ty) all_params, ret_ty);
+              Hashtbl.replace env.method_registry mangled_name
+                (is_pub, !(env.current_module));
               let _ =
                 match Llvm.lookup_function mangled_name !ce_module with
                 | Some existing -> existing

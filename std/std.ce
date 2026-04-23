@@ -1,35 +1,32 @@
-trait any{}
+pub trait any{}
 
-trait Iterable {
+pub trait Iterable {
   fn next() bool;
 }
 
-fn assert(condition bool, message string) !void {
-  if condition {
-  } else {
-    if message == "" {
-      raise "Assertion failed!"
-    } else {
-      raise message
-    }
+pub fn assert(condition bool, message string) !void {
+  if condition { return }
+
+  if message == "" {
+    raise "Assertion failed!"
   }
+
+  raise message
 }
 
-fn typeof(x any) string {
+pub fn typeof(x any) string {
   return "unknown"
 }
 
-fn malloc<T any>(size uint) *T {
+pub fn malloc<T any>(size uint) *T {
   let dummy T
   return &dummy
 }
 
-fn realloc<T any>(ptr *T, new_size uint) *T {
+pub fn realloc<T any>(ptr *T, new_size uint) *T {
   let dummy T
   return &dummy
 }
-
-fn free<T any>(ptr *T) void {}
 
 impl int {
   fn size(self) uint { return 4 }

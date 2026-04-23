@@ -133,13 +133,15 @@ class mapper =
                 List.map self#map_stmt body )
         | Impl (name, tparams, methods) ->
             let map_tparam (n, ty) = (n, self#map_type ty) in
-            let map_method (m_name, self_id, is_ptr, m_params, ret_ty, body) =
+            let map_method
+                (m_name, is_pub, self_id, is_ptr, m_params, ret_ty, body) =
               let s_params =
                 List.map
                   (fun (p : param) -> { p with ty = self#map_type p.ty })
                   m_params
               in
               ( m_name,
+                is_pub,
                 self_id,
                 is_ptr,
                 s_params,

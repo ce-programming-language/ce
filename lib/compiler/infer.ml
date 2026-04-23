@@ -68,11 +68,11 @@ let rec infer_ast_type (env : compiler_env) (expr : expr) =
                             match
                               Hashtbl.find_opt env.struct_registry clean_name
                             with
-                            | Some (_, field_map) -> (
+                            | Some (_, field_map, _) -> (
                                 try
-                                  let _, _, _, next_ty =
+                                  let _, _, _, next_ty, _ =
                                     List.find
-                                      (fun (n, _, _, _) -> n = prop)
+                                      (fun (n, _, _, _, _) -> n = prop)
                                       field_map
                                   in
                                   resolve_props next_ty rest
