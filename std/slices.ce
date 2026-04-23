@@ -1,3 +1,5 @@
+import slices
+
 struct SliceIter<T any> {
   mut slice Slice<T>;
   mut current int;
@@ -25,7 +27,7 @@ impl SliceIter<T any> {
   }
 }
 
-struct Slice<T any> {
+pub struct Slice<T any> {
   mut ptr *T;
   mut len int;
   mut cap int;
@@ -49,7 +51,7 @@ impl Slice<T any> {
     *target = v
   }
 
-  pub fn append(&self, item T) Slice<T> {
+  fn _append(&self, item T) void {
     let so int = sizeof(item)
 
     if self.len >= self.cap {
@@ -63,7 +65,13 @@ impl Slice<T any> {
     *target = item
     
     self.len = self.len + 1
-    return self
+  }
+
+  pub fn append(&self, items ...T) void {
+    let iter = items.iter()
+    for iter.next() {
+      self._append(iter.value())
+    }
   }
 
   pub fn clone(self) Slice<T> {
