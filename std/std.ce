@@ -29,26 +29,26 @@ pub fn realloc<T any>(ptr *T, new_size uint) *T {
 }
 
 impl int {
-  fn size(self) uint { return 4 }
-  fn min(self) int { return -2147483648 }
-  fn max(self) int { return 2147483647 }
+  pub fn size(self) uint { return 4 }
+  pub fn min(self) int { return -2147483648 }
+  pub fn max(self) int { return 2147483647 }
 }
 
 impl i8 {
-  fn size(self) uint { return 1 }
-  fn min(self) i8 { return -128 }
-  fn max(self) i8 { return 127 }
+  pub fn size(self) uint { return 1 }
+  pub fn min(self) i8 { return -128 }
+  pub fn max(self) i8 { return 127 }
 }
 
 impl i16 {
-  fn size(self) uint { return 2 }
-  fn min(self) i16 { return -32768 }
-  fn max(self) i16 { return 32767 }
+  pub fn size(self) uint { return 2 }
+  pub fn min(self) i16 { return -32768 }
+  pub fn max(self) i16 { return 32767 }
 }
 
 impl i64 {
-  fn size(self) uint { return 8 }
-  fn max(self) i64 { 
+  pub fn size(self) uint { return 8 }
+  pub fn max(self) i64 { 
     let zero u64 = 0
     let one u64 = 1
     let two u64 = 2
@@ -56,7 +56,7 @@ impl i64 {
     return umax / two
   }
   
-  fn min(self) i64 { 
+  pub fn min(self) i64 { 
     let zero i64 = 0
     let one i64 = 1
     let zero_u u64 = 0
@@ -68,8 +68,8 @@ impl i64 {
 }
 
 impl i128 {
-  fn size(self) uint { return 16 }
-  fn max(self) i128 { 
+  pub fn size(self) uint { return 16 }
+  pub fn max(self) i128 { 
     let zero u128 = 0
     let one u128 = 1
     let two u128 = 2
@@ -77,7 +77,7 @@ impl i128 {
     return umax / two
   }
   
-  fn min(self) i128 { 
+  pub fn min(self) i128 { 
     let zero i128 = 0
     let one i128 = 1
     let zero_u u128 = 0
@@ -89,27 +89,27 @@ impl i128 {
 }
 
 impl uint {
-  fn size(self) uint { return 4 }
-  fn min(self) uint { return 0 }
-  fn max(self) uint { return 4294967295 }
+  pub fn size(self) uint { return 4 }
+  pub fn min(self) uint { return 0 }
+  pub fn max(self) uint { return 4294967295 }
 }
 
 impl u8 {
-  fn size(self) uint { return 1 }
-  fn min(self) u8 { return 0 }
-  fn max(self) u8 { return 255 }
+  pub fn size(self) uint { return 1 }
+  pub fn min(self) u8 { return 0 }
+  pub fn max(self) u8 { return 255 }
 }
 
 impl u16 {
-  fn size(self) uint { return 2 }
-  fn min(self) u16 { return 0 }
-  fn max(self) u16 { return 65535 }
+  pub fn size(self) uint { return 2 }
+  pub fn min(self) u16 { return 0 }
+  pub fn max(self) u16 { return 65535 }
 }
 
 impl u64 {
-  fn size(self) uint { return 8 }
-  fn min(self) u64 { return 0 }
-  fn max(self) u64 { 
+  pub fn size(self) uint { return 8 }
+  pub fn min(self) u64 { return 0 }
+  pub fn max(self) u64 { 
     let zero u64 = 0
     let one u64 = 1
     return zero - one
@@ -117,9 +117,9 @@ impl u64 {
 }
 
 impl u128 {
-  fn size(self) uint { return 16 }
-  fn min(self) u128 { return 0 }
-  fn max(self) u128 { 
+  pub fn size(self) uint { return 16 }
+  pub fn min(self) u128 { return 0 }
+  pub fn max(self) u128 { 
     let zero u128 = 0
     let one u128 = 1
     return zero - one 
@@ -127,19 +127,19 @@ impl u128 {
 }
 
 impl f32 {
-  fn size(self) uint { return 4 }
-  fn min(self) f32 { return -340282346638528859811704183484516925440.0 }
-  fn max(self) f32 { return 340282346638528859811704183484516925440.0 }
+  pub fn size(self) uint { return 4 }
+  pub fn min(self) f32 { return -340282346638528859811704183484516925440.0 }
+  pub fn max(self) f32 { return 340282346638528859811704183484516925440.0 }
 }
 
 impl float {
-  fn size(self) uint { return 8 }
-  fn min(self) float { return -179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0 }
-  fn max(self) float { return 179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0 }
+  pub fn size(self) uint { return 8 }
+  pub fn min(self) float { return -179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0 }
+  pub fn max(self) float { return 179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0 }
 }
 
 impl string {
-  fn len(self) uint {
+  pub fn len(self) uint {
     let mut count uint = 0
     let null_char char = 0
 

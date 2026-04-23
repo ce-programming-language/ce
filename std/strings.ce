@@ -1,13 +1,13 @@
 import slices
 
 impl string {
-  fn at(self, index uint) char {
+  pub fn at(self, index uint) char {
     let ptr *char = self 
     let target *char = ptr + index 
     return *target
   }
 
-  fn clone(self) string {
+  pub fn clone(self) string {
     let length uint = self.len()
     let new_ptr *char = malloc<char>(length + 1)
     
@@ -19,7 +19,7 @@ impl string {
     return new_ptr
   }
 
-  fn compare(self, other string) int {
+  pub fn compare(self, other string) int {
     let null_char char = 0
 
     for i = 0; true; i = i + 1 {
@@ -40,7 +40,7 @@ impl string {
     return 0
   }
 
-  fn hasPrefix(self, prefix string) bool {
+  pub fn hasPrefix(self, prefix string) bool {
     let self_len uint = self.len()
     let pref_len uint = prefix.len()
 
@@ -60,7 +60,7 @@ impl string {
     return true
   }
 
-  fn hasSuffix(self, suffix string) bool {
+  pub fn hasSuffix(self, suffix string) bool {
     let self_len uint = self.len()
     let suff_len uint = suffix.len()
 
@@ -82,7 +82,7 @@ impl string {
     return true
   }
 
-  fn contains(self, substr string) bool {
+  pub fn contains(self, substr string) bool {
     let self_len uint = self.len()
     let sub_len uint = substr.len()
 
@@ -114,7 +114,7 @@ impl string {
     return false
   }
 
-  fn repeat(self, count uint) !string {
+  pub fn repeat(self, count uint) !string {
     assert(count >= 0, "repeat count is negative")
 
     if count == 0 {
@@ -138,7 +138,7 @@ impl string {
     return new_ptr
   }
 
-  fn chars(self) slices.Slice<char> {
+  pub fn chars(self) slices.Slice<char> {
       let c = slices.new<char>(0)
       for i = 0; i < self.len(); i = i + 1 {
           c.append(self.at(i))
@@ -147,7 +147,7 @@ impl string {
         return c
     }
 
-  fn substring(self, start uint, end uint) string {
+  pub fn substring(self, start uint, end uint) string {
     if start >= end {
       return ""
     }
