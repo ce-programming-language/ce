@@ -53,9 +53,6 @@ let compile (stmts : stmt list) =
   in
   process_pending ();
 
-  let generated_modules = ref [] in
-  Hashtbl.iter
-    (fun mname (m, _) ->
-      generated_modules := (mname, optimize m) :: !generated_modules)
-    modules_map;
-  !generated_modules
+  let lto_main = create_module ce_ctx "main" in
+  Hashtbl.iter (fun _ (m, _) -> Llvm_linker.link_modules lto_main m) modules_map;
+  [ ("main", optimize lto_main) ]

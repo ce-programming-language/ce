@@ -8,4 +8,5 @@
   llvm.analysis
   llvm.target
   llvm.all_backends
-  llvm.passbuilder))
+  llvm.passbuilder
+  llvm.linker))
