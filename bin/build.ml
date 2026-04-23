@@ -67,39 +67,39 @@ class namespacer prefix decls =
     method! map_expr e =
       match e.node with
       | Call (name, targs, args) ->
-          Utils.mk_expr
-          @@ Call
-               ( self#apply_namespace name,
-                 List.map self#map_type targs,
-                 List.map self#map_expr args )
+          super#map_expr
+            { e with node = Call (self#apply_namespace name, targs, args) }
       | Struct (name, targs, fields) ->
-          Utils.mk_expr
-          @@ Struct
-               ( self#apply_namespace name,
-                 List.map self#map_type targs,
-                 List.map (fun (n, expr) -> (n, self#map_expr expr)) fields )
+          super#map_expr
+            { e with node = Struct (self#apply_namespace name, targs, fields) }
       | _ -> super#map_expr e
 
     method! map_stmt s =
       match s.node with
       | DefFN (name, tparams, params, ty, body) ->
           super#map_stmt
-            (Utils.mk_stmt
-            @@ DefFN (self#apply_namespace name, tparams, params, ty, body))
+            {
+              s with
+              node = DefFN (self#apply_namespace name, tparams, params, ty, body);
+            }
       | DefStruct (name, params, fields) ->
           super#map_stmt
-            (Utils.mk_stmt
-            @@ DefStruct (self#apply_namespace name, params, fields))
+            {
+              s with
+              node = DefStruct (self#apply_namespace name, params, fields);
+            }
       | DefInterface (name, sigs) ->
           super#map_stmt
-            (Utils.mk_stmt @@ DefInterface (self#apply_namespace name, sigs))
+            { s with node = DefInterface (self#apply_namespace name, sigs) }
       | ExternFN (alias, name, params, ret_ty) ->
           super#map_stmt
-            (Utils.mk_stmt
-            @@ ExternFN (alias, self#apply_namespace name, params, ret_ty))
+            {
+              s with
+              node = ExternFN (alias, self#apply_namespace name, params, ret_ty);
+            }
       | Impl (name, params, methods) ->
           super#map_stmt
-            (Utils.mk_stmt @@ Impl (self#apply_namespace name, params, methods))
+            { s with node = Impl (self#apply_namespace name, params, methods) }
       | _ -> super#map_stmt s
   end
 

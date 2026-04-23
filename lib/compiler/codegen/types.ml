@@ -199,7 +199,7 @@ module Make () : TYPES = struct
     if Hashtbl.mem env.function_types mangled_name then mangled_name
     else
       begin match Hashtbl.find_opt env.fn_templates name with
-      | Some (tparams, fn_params, ret_ty, body) ->
+      | Some (tparams, fn_params, ret_ty, body, is_pub, def_mod) ->
           let type_map =
             List.map2 (fun (p_name, _) arg_ty -> (p_name, arg_ty)) tparams targs
           in
@@ -221,18 +221,20 @@ module Make () : TYPES = struct
           let ft = function_type (llvm_type_of env sub_ret_ty) param_types in
           Hashtbl.replace env.function_types mangled_name
             (ft, List.map (fun (p : param) -> p.ty) sub_params, sub_ret_ty);
-
           let _ =
             match Llvm.lookup_function mangled_name !ce_module with
             | Some existing -> existing
             | None ->
                 let new_f = declare_function mangled_name ft !ce_module in
-                set_linkage Linkage.Internal new_f;
+                if not is_pub then set_linkage Linkage.Internal new_f;
                 new_f
           in
+          let fn_stmt =
+            Utils.mk_stmt
+              (DefFN (mangled_name, [], sub_params, sub_ret_ty, sub_body))
+          in
           Queue.push
-            (Utils.mk_stmt
-               (DefFN (mangled_name, [], sub_params, sub_ret_ty, sub_body)))
+            { fn_stmt with mod_name = def_mod; is_pub }
             env.pending_instantiations;
           mangled_name
       | None -> raise (Error ("Undefined generic function: " ^ name))

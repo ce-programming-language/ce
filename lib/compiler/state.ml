@@ -16,7 +16,9 @@ type compiler_env = {
       * string )
     Hashtbl.t;
   fn_templates :
-    (string, (string * types) list * param list * types * stmt list) Hashtbl.t;
+    ( string,
+      (string * types) list * param list * types * stmt list * bool * string )
+    Hashtbl.t;
   struct_registry :
     ( string,
       lltype * (string * int * bool * types * bool) list * string )

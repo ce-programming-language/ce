@@ -88,7 +88,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                "The main function must be public. Use 'pub fn main'");
 
         if List.length tparams > 0 then begin
-          Hashtbl.add env.fn_templates name (tparams, params, ret_ty, body);
+          Hashtbl.add env.fn_templates name (tparams, params, ret_ty, body, s.is_pub, !(env.current_module));
           const_null (void_type ce_ctx)
         end
         else begin
