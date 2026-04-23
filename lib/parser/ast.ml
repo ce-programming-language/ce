@@ -108,6 +108,7 @@ and stmt_node =
   | ForEach of string option * string option * expr * stmt list
   | Break
   | Import of string list
+  | ImportFrom of string list * string list
   | Raise of expr
   | DefInterface of string * fn_signature list
   | ExternFN of string option * string * param list * types

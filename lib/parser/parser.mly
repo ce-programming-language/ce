@@ -80,7 +80,7 @@
 %token <char>   CHAR
 %token          PLUS MINUS STAR SLASH MOD EQEQ LT LTE GT GTE AND OR BANG
 %token          LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET COMMA EQUALS DOT AMP SEMICOLON ELLIPSIS
-%token          EOF RETURN IMPORT BREAK NEWLINE TYPE IMPL RAISE CATCH STRUCT TRAIT EXTERN
+%token          EOF RETURN IMPORT FROM BREAK NEWLINE TYPE IMPL RAISE CATCH STRUCT TRAIT EXTERN
 %token          TYPE_BOOL TYPE_VOID TYPE_STRING TYPE_CHAR
 %token          TYPE_INT TYPE_I8 TYPE_I16 TYPE_I32 TYPE_I64 TYPE_I128
 %token          TYPE_UINT TYPE_U8 TYPE_U16 TYPE_U32 TYPE_U64 TYPE_U128
@@ -121,6 +121,7 @@ global_stmt:
   | def_trait       { $1 }
   | def_extern      { $1 }
   | IMPORT path = module_path { mk_stmt $startpos $endpos @@ Import path }
+  | IMPORT names = separated_list(COMMA, IDENT) FROM path = module_path { mk_stmt $startpos $endpos @@ ImportFrom (names, path) }
   | IMPL struct_name = impl_target params = generic_params_opt LBRACE sep_opt methods = impl_method_list RBRACE
       { mk_stmt $startpos $endpos @@ Impl (struct_name, params, methods) }
 

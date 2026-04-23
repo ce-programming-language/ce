@@ -166,6 +166,10 @@ module Make (Types : TYPES) : EXPR = struct
         then begin
           build_bitcast raw_val expected_ll_ty "ptr_cast" ce_builder
         end
+        else if raw_ty <> expected_ll_ty then
+          raise
+            (Utils.mk_error loc
+               "Type mismatch: Could not implicitly cast value to expected type")
         else raw_val
 
   and codegen env compile_stmt_cb (e : expr) =

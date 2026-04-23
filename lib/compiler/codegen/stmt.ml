@@ -543,6 +543,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         let v = Expr.codegen env codegen e in
         Utils.Stmt.gen_return env ce_builder ce_ctx v
     | Import _ -> const_null (void_type ce_ctx)
+    | ImportFrom _ -> const_null (void_type ce_ctx)
     | Impl (name, params, methods) ->
         if List.length params > 0 then begin
           Hashtbl.add env.impl_templates name (params, methods);

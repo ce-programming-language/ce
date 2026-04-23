@@ -101,9 +101,12 @@ class namespacer prefix decls =
 let namespace_stmt prefix decls ast = (new namespacer prefix decls)#map_stmt ast
 
 let rec process_file_inner visited filepath namespace_prefix =
-  if Hashtbl.mem visited filepath then []
+  let cache_key =
+    filepath ^ match namespace_prefix with Some p -> ":" ^ p | None -> ":none"
+  in
+  if Hashtbl.mem visited cache_key then []
   else begin
-    Hashtbl.add visited filepath true;
+    Hashtbl.add visited cache_key true;
     let src = read filepath in
     let ast = parse filepath src in
     let decls =
@@ -132,6 +135,22 @@ let rec process_file_inner visited filepath namespace_prefix =
               let import_path = resolve_import path_list in
               let module_name = List.hd (List.rev path_list) in
               acc @ process_file_inner visited import_path (Some module_name)
+          | ImportFrom (names, path_list) ->
+              let import_path = resolve_import path_list in
+              let raw_ast = process_file_inner visited import_path None in
+              let filtered_ast =
+                List.filter
+                  (fun s ->
+                    match s.node with
+                    | DefFN (name, _, _, _, _) -> List.mem name names
+                    | DefStruct (name, _, _) -> List.mem name names
+                    | DefInterface (name, _) -> List.mem name names
+                    | ExternFN (_, name, _, _) -> List.mem name names
+                    | Impl (name, _, _) -> List.mem name names
+                    | _ -> false)
+                  raw_ast
+              in
+              acc @ filtered_ast
           | _ -> acc)
         [] namespaced_ast
     in

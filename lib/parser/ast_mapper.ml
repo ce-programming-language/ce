@@ -147,6 +147,8 @@ class mapper =
                 List.map self#map_stmt body )
             in
             Impl (name, List.map map_tparam tparams, List.map map_method methods)
+        | Import path -> Import path
+        | ImportFrom (names, path) -> ImportFrom (names, path)
         | s -> s
       in
       { s with node = mapped }
