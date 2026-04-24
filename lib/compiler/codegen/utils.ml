@@ -164,6 +164,48 @@ let gen_err_result ctx builder res_ll_ty err_msg =
   build_insertvalue s1 err_msg 2 "err_msg" builder
 
 module Expr = struct
+  let rec build_eq_cmp l_val r_val builder =
+    let ty = type_of l_val in
+    match classify_type ty with
+    | TypeKind.Struct ->
+        let elems = struct_element_types ty in
+        let num_elems = Array.length elems in
+        if num_elems = 0 then const_int (i1_type ce_ctx) 1
+        else
+          let rec check_fields i acc =
+            if i >= num_elems then acc
+            else
+              let l_elem = build_extractvalue l_val i "l_elem" builder in
+              let r_elem = build_extractvalue r_val i "r_elem" builder in
+              let elem_eq = build_eq_cmp l_elem r_elem builder in
+              let new_acc =
+                if i = 0 then elem_eq
+                else build_and acc elem_eq "struct_eq_and" builder
+              in
+              check_fields (i + 1) new_acc
+          in
+          check_fields 0 (const_int (i1_type ce_ctx) 1)
+    | TypeKind.Array ->
+        let len = array_length ty in
+        if len = 0 then const_int (i1_type ce_ctx) 1
+        else
+          let rec check_elems i acc =
+            if i >= len then acc
+            else
+              let l_elem = build_extractvalue l_val i "l_elem" builder in
+              let r_elem = build_extractvalue r_val i "r_elem" builder in
+              let elem_eq = build_eq_cmp l_elem r_elem builder in
+              let new_acc =
+                if i = 0 then elem_eq
+                else build_and acc elem_eq "arr_eq_and" builder
+              in
+              check_elems (i + 1) new_acc
+          in
+          check_elems 0 (const_int (i1_type ce_ctx) 1)
+    | TypeKind.Double | TypeKind.Float ->
+        build_fcmp Fcmp.Oeq l_val r_val "eqtmp" builder
+    | _ -> build_icmp Icmp.Eq l_val r_val "eqtmp" builder
+
   let gen_binary_op op_type l_val r_val l_ty =
     let is_unsigned_ty = is_unsigned l_ty in
     match op_type with
@@ -186,9 +228,7 @@ module Expr = struct
         build_numeric_op l_val r_val
           (if is_unsigned_ty then build_urem else build_srem)
           build_frem "modtmp"
-    | `Eq ->
-        build_numeric_op l_val r_val (build_icmp Icmp.Eq) (build_fcmp Fcmp.Oeq)
-          "eqtmp"
+    | `Eq -> build_eq_cmp l_val r_val !ce_builder
     | `Lt ->
         build_numeric_op l_val r_val
           (build_icmp (if is_unsigned_ty then Icmp.Ult else Icmp.Slt))
