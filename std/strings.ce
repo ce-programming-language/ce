@@ -169,10 +169,17 @@ impl string {
 }
 
 pub fn from_chars(chars slices.Slice<char>) string {
-    let mut s string = ""
-    for i = 0; i < chars.len(); i = i + 1 {
-        s = s + chars.get(i)
-      }
-
-      return s
+  let len uint = chars.len()
+  let new_ptr *char = malloc<char>(len + 1)
+  
+  for i = 0; i < len; i = i + 1 {
+      let target *char = new_ptr + i
+      *target = chars.get(i) catch(e) char { return "" }
   }
+  
+  let null_char char = 0
+  let end_target *char = new_ptr + len
+  *end_target = null_char
+  
+  return new_ptr
+}

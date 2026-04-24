@@ -33,7 +33,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           let ast_ty = infer_ast_type env e in
           let expected_ast_ty = match ast_ty with TResult t -> t | t -> t in
           ignore
-            (Expr.coerce_value env s.loc expected_ast_ty
+            (Expr.coerce_value env s.loc expected_ast_ty expected_ast_ty
                (struct_element_types ty).(1)
                v false false)
         end;
@@ -64,7 +64,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           | Some raw_val ->
               let src_ty = infer_ast_type env (Option.get expr_opt) in
               let is_src_u = is_unsigned src_ty in
-              Expr.coerce_value env s.loc inferred_ty ll_ty raw_val false
+              Expr.coerce_value env s.loc src_ty inferred_ty ll_ty raw_val false
                 is_src_u
           | None -> const_null ll_ty
         in
@@ -313,8 +313,8 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         let src_ty = infer_ast_type env expr in
         let is_src_u = is_unsigned src_ty in
         let val_to_store =
-          Expr.coerce_value env s.loc expected_ast_ty expected_ll_ty val_ is_u
-            is_src_u
+          Expr.coerce_value env s.loc src_ty expected_ast_ty expected_ll_ty val_
+            is_u is_src_u
         in
         Utils.Stmt.gen_assignment !ce_builder expected_ll_ty var_ptr
           val_to_store
@@ -343,8 +343,9 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           match array_ty with TArray (_, t) -> t | _ -> TUnknown
         in
         let coerced_val =
-          Expr.coerce_value env s.loc expected_ast_ty expected_ll_ty
-            val_to_store false false
+          Expr.coerce_value env s.loc
+            (infer_ast_type env val_expr)
+            expected_ast_ty expected_ll_ty val_to_store false false
         in
         Utils.Stmt.gen_assignment !ce_builder expected_ll_ty element_ptr
           coerced_val
@@ -364,7 +365,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         let is_src_u = is_unsigned src_ty in
         let expected_ll_ty = Types.llvm_type_of env expected_ast_ty in
         let val_to_store =
-          Expr.coerce_value env s.loc expected_ast_ty
+          Expr.coerce_value env s.loc src_ty expected_ast_ty
             (Types.llvm_type_of env expected_ast_ty)
             raw_val
             (is_unsigned expected_ast_ty)

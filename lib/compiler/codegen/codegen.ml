@@ -9,7 +9,15 @@ end
 
 module type EXPR = sig
   val coerce_value :
-    compiler_env -> loc -> types -> lltype -> llvalue -> bool -> bool -> llvalue
+    compiler_env ->
+    loc ->
+    types ->
+    types ->
+    lltype ->
+    llvalue ->
+    bool ->
+    bool ->
+    llvalue
 
   val codegen :
     compiler_env -> (compiler_env -> stmt -> llvalue) -> expr -> llvalue

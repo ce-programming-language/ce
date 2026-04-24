@@ -3,32 +3,30 @@ open Ce_parser.Ast
 open State
 open Ce_error
 
-let build_numeric_op lv rv build_int build_float name =
+let rec build_numeric_op lv rv build_int build_float name =
   if type_of lv = double_type ce_ctx then build_float lv rv name !ce_builder
   else build_int lv rv name !ce_builder
 
-and resolve_property_ptr env current_ptr current_ty props =
-  let rec get_gep ptr ty props =
+and resolve_property_ptr env llvm_type_of current_ptr current_llty
+    current_ast_ty props =
+  let rec get_gep ptr ty ast_ty props =
     match props with
     | [] -> ptr
     | prop :: rest -> (
-        let actual_ptr, actual_ty =
-          if classify_type ty = TypeKind.Pointer then
-            (build_load ty ptr "deref_ptr" !ce_builder, element_type ty)
-          else (ptr, ty)
+        let is_ptr = match ast_ty with TPointer _ -> true | _ -> false in
+        let base_ast_ty = match ast_ty with TPointer t -> t | t -> t in
+        let actual_ty = llvm_type_of env base_ast_ty in
+        let actual_ptr =
+          if is_ptr then build_load actual_ty ptr "deref_ptr" !ce_builder
+          else ptr
         in
         match classify_type actual_ty with
         | TypeKind.Struct ->
-            let s_name = Option.get (struct_name actual_ty) in
-            let clean_name =
-              if String.starts_with ~prefix:"struct." s_name then
-                String.sub s_name 7 (String.length s_name - 7)
-              else s_name
-            in
+            let clean_name = ast_base_type_name base_ast_ty in
             let _, field_map, def_mod =
               Hashtbl.find env.struct_registry clean_name
             in
-            let _, idx, _, _, is_pub =
+            let _, idx, _, next_ast_ty, is_pub =
               List.find (fun (n, _, _, _, _) -> n = prop) field_map
             in
             if (not is_pub) && !(env.current_module) <> def_mod then
@@ -37,10 +35,10 @@ and resolve_property_ptr env current_ptr current_ty props =
               build_struct_gep actual_ty actual_ptr idx "prop_ptr" !ce_builder
             in
             let next_ty = (struct_element_types actual_ty).(idx) in
-            get_gep next_ptr next_ty rest
+            get_gep next_ptr next_ty next_ast_ty rest
         | _ -> raise (Error.cant_access_prop_on_nonstruct prop))
   in
-  get_gep current_ptr current_ty props
+  get_gep current_ptr current_llty current_ast_ty props
 
 and is_unsigned = function TInt (_, Unsigned) -> true | _ -> false
 
