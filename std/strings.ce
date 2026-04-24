@@ -167,3 +167,12 @@ impl string {
     return new_ptr
   }
 }
+
+pub fn from_chars(chars slices.Slice<char>) string {
+    let mut s string = ""
+    for i = 0; i < chars.len(); i = i + 1 {
+        s = s + chars.get(i)
+      }
+
+      return s
+  }

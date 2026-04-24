@@ -87,15 +87,27 @@ module Make (Types : TYPES) : EXPR = struct
           double_type ce_ctx )
       else (raw_val, raw_ty)
     in
-    let malloc_val = build_malloc actual_raw_ty "autobox_malloc" !ce_builder in
-    ignore (build_store actual_raw_val malloc_val !ce_builder);
     let ptr_ty = pointer_type ce_ctx in
-    let data_ptr = build_bitcast malloc_val ptr_ty "autobox_data" !ce_builder in
+    let is_ptr = classify_type actual_raw_ty = TypeKind.Pointer in
+    let data_ptr =
+      if is_ptr then
+        build_bitcast actual_raw_val ptr_ty "autobox_data" !ce_builder
+      else begin
+        let malloc_val =
+          build_malloc actual_raw_ty "autobox_malloc" !ce_builder
+        in
+        ignore (build_store actual_raw_val malloc_val !ce_builder);
+        build_bitcast malloc_val ptr_ty "autobox_data" !ce_builder
+      end
+    in
     let vtable_ptr =
       match expected_ast_ty with
       | TNamed trait_name when Hashtbl.mem env.interface_registry trait_name ->
           let sigs = Hashtbl.find env.interface_registry trait_name in
-          let struct_name_opt = struct_name actual_raw_ty in
+          let base_ty =
+            if is_ptr then element_type actual_raw_ty else actual_raw_ty
+          in
+          let struct_name_opt = struct_name base_ty in
           let clean_struct_name =
             if Option.is_some struct_name_opt then
               Utils.clean_struct_name (Option.get struct_name_opt)
@@ -118,10 +130,6 @@ module Make (Types : TYPES) : EXPR = struct
             build_call gc_malloc_ty gc_malloc_fn [| total_size |]
               "vtable_alloc_raw" !ce_builder
           in
-          let vtable_alloc =
-            build_bitcast vtable_alloc_raw (pointer_type ce_ctx) "vtable_alloc"
-              !ce_builder
-          in
 
           List.iteri
             (fun i method_sig ->
@@ -134,7 +142,7 @@ module Make (Types : TYPES) : EXPR = struct
                 | None -> const_null ptr_ty
               in
               let gep =
-                build_in_bounds_gep vtable_llty vtable_alloc
+                build_in_bounds_gep vtable_llty vtable_alloc_raw
                   [|
                     const_int (i32_type ce_ctx) 0; const_int (i32_type ce_ctx) i;
                   |]
@@ -142,7 +150,7 @@ module Make (Types : TYPES) : EXPR = struct
               in
               ignore (build_store func_ptr gep !ce_builder))
             sigs;
-          build_bitcast vtable_alloc ptr_ty "vtable_ptr" !ce_builder
+          vtable_alloc_raw
       | _ ->
           let type_tag =
             match classify_type actual_raw_ty with
