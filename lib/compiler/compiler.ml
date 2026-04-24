@@ -33,13 +33,20 @@ let compile ?(opt = "0") (stmts : stmt list) =
       Hashtbl.add modules_map mname (m, b);
       (m, b)
   in
+  let is_decl s =
+    match s.node with
+    | DefStruct _ | DefType _ | DefInterface _ -> true
+    | _ -> false
+  in
 
   List.iter
     (fun s ->
-      let m, b = get_module s.mod_name in
-      ce_module := m;
-      ce_builder := b;
-      ignore (Stmt.codegen env s))
+      if is_decl s then begin
+        let m, b = get_module s.mod_name in
+        ce_module := m;
+        ce_builder := b;
+        ignore (Stmt.codegen env s)
+      end)
     stmts;
 
   let rec process_pending () =
@@ -52,6 +59,18 @@ let compile ?(opt = "0") (stmts : stmt list) =
       process_pending ()
     end
   in
+  process_pending ();
+
+  List.iter
+    (fun s ->
+      if not (is_decl s) then begin
+        let m, b = get_module s.mod_name in
+        ce_module := m;
+        ce_builder := b;
+        ignore (Stmt.codegen env s)
+      end)
+    stmts;
+
   process_pending ();
 
   if opt == "lto" then begin

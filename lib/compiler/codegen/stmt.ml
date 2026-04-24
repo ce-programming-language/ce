@@ -258,8 +258,12 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                         Hashtbl.find env.struct_registry clean_name
                       in
                       let _, idx, is_mut, _, is_pub =
-                        List.find (fun (n, _, _, _, _) -> n = prop) field_map
+                        try
+                          List.find (fun (n, _, _, _, _) -> n = prop) field_map
+                        with Not_found ->
+                          raise (Error.unknown_prop s.loc prop clean_name)
                       in
+
                       if (not is_pub) && !(env.current_module) <> def_mod then
                         raise
                           (Error.cant_access_private_on_struct ~loc:s.loc prop

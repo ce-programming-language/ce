@@ -1,12 +1,12 @@
 import strings
 
-struct URL {
-  mut scheme string;
-  mut host string;
-  mut port string;
+pub struct URL {
+  pub mut scheme string;
+  pub mut host string;
+  pub mut port string;
 }
 
-fn parse(raw string) !*URL {
+pub fn parse(raw string) !*URL {
   let len uint = raw.len()
   let url = malloc<URL>(1)
   let mut scheme_end uint = 0

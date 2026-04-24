@@ -8,7 +8,7 @@ struct SliceIter<T any> {
 impl SliceIter<T any> {
   fn next(&self) bool {
     self.current = self.current + 1
-    return self.current < self.slice.len
+    return self.current < self.slice._len
   }
 
   fn index(&self) int {
@@ -29,13 +29,17 @@ impl SliceIter<T any> {
 
 pub struct Slice<T any> {
   mut ptr *T;
-  mut len int;
+  mut _len int;
   mut cap int;
 }
 
 impl Slice<T any> {
+  pub fn len(&self) uint {
+    return self._len
+  }
+
   pub fn get(self, index int) !T {
-    assert(self.len > index, "unbound index")
+    assert(self._len > index, "unbound index")
 
     let start *T = self.ptr
     let search *T = self.ptr + (index * sizeof(*start))
@@ -44,7 +48,7 @@ impl Slice<T any> {
 
   pub fn set(&self, index int, v T) void {
     assert(index >= 0, "index out of bounds")
-    assert(self.len > index, "index out of bounds")
+    assert(self._len > index, "index out of bounds")
 
     let item_size int = sizeof(v)
     let target *T = self.ptr + (index * item_size)
@@ -54,17 +58,17 @@ impl Slice<T any> {
   fn _append(&self, item T) void {
     let so int = sizeof(item)
 
-    if self.len >= self.cap {
+    if self._len >= self.cap {
       let new_cap int = if self.cap == 0 { 4 } else { self.cap * 2 }
       
       self.ptr = realloc<T>(self.ptr, new_cap)
       self.cap = new_cap
     }
 
-    let target *T = self.ptr + (self.len * so)
+    let target *T = self.ptr + (self._len * so)
     *target = item
     
-    self.len = self.len + 1
+    self._len = self._len + 1
   }
 
   pub fn append(&self, items ...T) void {
@@ -76,9 +80,9 @@ impl Slice<T any> {
 
   pub fn clone(self) Slice<T> {
     let mut new_slice = slices.new<T>(self.cap)
-    new_slice.len = self.len
+    new_slice._len = self._len
 
-    for i = 0; i < self.len; i = i + 1 {
+    for i = 0; i < self._len; i = i + 1 {
       new_slice.set(i, self.get(i))
     }
 
@@ -86,18 +90,18 @@ impl Slice<T any> {
   }
 
   pub fn concat(self, y Slice<T>) Slice<T> {
-    let mut new_slice = slices.new<T>(self.len + y.len)
-    for i = 0; i < self.len; i = i + 1 {
+    let mut new_slice = slices.new<T>(self._len + y._len)
+    for i = 0; i < self._len; i = i + 1 {
       new_slice.set(i, self.get(i))
     }
-    for i = 0; i < y.len; i = i + 1 {
-      new_slice.set(i + self.len, y.get(i))
+    for i = 0; i < y._len; i = i + 1 {
+      new_slice.set(i + self._len, y.get(i))
     }
     return new_slice
   }
 
   pub fn contains(self, v T) bool {
-    for i = 0; i < self.len; i = i + 1 {
+    for i = 0; i < self._len; i = i + 1 {
       let current_ptr = self.get(i)
       if current_ptr == v {
         return true
@@ -108,21 +112,21 @@ impl Slice<T any> {
   }
 
   pub fn delete(&self, start int, end int) Slice<T> {
-    if start < 0 || end > self.len || start >= end {
+    if start < 0 || end > self._len || start >= end {
       return self
     }
 
     let x T
     let item_size int = sizeof(x)
     let num_to_delete = end - start
-    let num_to_move int = self.len - end
+    let num_to_move int = self._len - end
 
     for i = 0; i < num_to_move; i = i + 1 {
       let target_ptr *T = self.ptr + ((start + i) * item_size)
       let source_ptr *T = self.ptr + ((end + i) * item_size)
       *target_ptr = *source_ptr
     }
-    self.len = self.len - num_to_delete
+    self._len = self._len - num_to_delete
 
     return self
   }
@@ -136,7 +140,7 @@ impl Slice<T any> {
 }
 
 pub fn new<T any>(cap int) Slice<T> {
-  let s Slice<T> = Slice<T>{ptr = malloc<T>(cap); len = cap; cap = cap}
+  let s Slice<T> = Slice<T>{ptr = malloc<T>(cap); _len = cap; cap = cap}
   return s
 }
 
