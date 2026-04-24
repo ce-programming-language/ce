@@ -50,9 +50,12 @@ class namespacer prefix decls =
     inherit Ce_parser.Ast_mapper.mapper as super
 
     method apply_namespace name =
-      match List.assoc_opt name decls with
-      | Some is_pub ->
-          if is_pub then prefix ^ "." ^ name else prefix ^ "." ^ name
+      let base_name =
+        if String.contains name '.' then List.hd (String.split_on_char '.' name)
+        else name
+      in
+      match List.assoc_opt base_name decls with
+      | Some _ -> prefix ^ "." ^ name
       | None -> name
 
     method! map_type t =
@@ -70,6 +73,11 @@ class namespacer prefix decls =
       | Struct (name, targs, fields) ->
           super#map_expr
             { e with node = Struct (self#apply_namespace name, targs, fields) }
+      | Let name ->
+          super#map_expr { e with node = Let (self#apply_namespace name) }
+      | ArrayAccess (name, idx) ->
+          super#map_expr
+            { e with node = ArrayAccess (self#apply_namespace name, idx) }
       | _ -> super#map_expr e
 
     method! map_stmt s =
@@ -101,6 +109,11 @@ class namespacer prefix decls =
       | Impl (name, params, methods) ->
           super#map_stmt
             { s with node = Impl (self#apply_namespace name, params, methods) }
+      | Assign (name, e) ->
+          super#map_stmt { s with node = Assign (self#apply_namespace name, e) }
+      | ArrayAssign (name, idx, e) ->
+          super#map_stmt
+            { s with node = ArrayAssign (self#apply_namespace name, idx, e) }
       | _ -> super#map_stmt s
   end
 

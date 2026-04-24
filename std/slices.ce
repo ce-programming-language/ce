@@ -34,6 +34,11 @@ pub struct Slice<T any> {
 }
 
 impl Slice<T any> {
+  pub fn new(cap int) Slice<T> {
+    let s Slice<T> = Slice<T>{ptr = malloc<T>(cap); _len = cap; cap = cap}
+    return s
+  }
+
   pub fn len(&self) uint {
     return self._len
   }
@@ -79,7 +84,7 @@ impl Slice<T any> {
   }
 
   pub fn clone(self) Slice<T> {
-    let mut new_slice = slices.new<T>(self.cap)
+    let mut new_slice = Slice.new<T>(self.cap)
     new_slice._len = self._len
 
     for i = 0; i < self._len; i = i + 1 {
@@ -90,7 +95,7 @@ impl Slice<T any> {
   }
 
   pub fn concat(self, y Slice<T>) Slice<T> {
-    let mut new_slice = slices.new<T>(self._len + y._len)
+    let mut new_slice = Slice.new<T>(self._len + y._len)
     for i = 0; i < self._len; i = i + 1 {
       new_slice.set(i, self.get(i))
     }
@@ -146,10 +151,6 @@ impl Slice<T any> {
 
     return p.len()
   }
-}
 
-pub fn new<T any>(cap int) Slice<T> {
-  let s Slice<T> = Slice<T>{ptr = malloc<T>(cap); _len = cap; cap = cap}
-  return s
 }
 

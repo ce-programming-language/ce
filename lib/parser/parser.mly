@@ -294,14 +294,16 @@ impl_method_list:
   | m = impl_method sep_opt rest = impl_method_list { m :: rest }
 
 impl_method:
-  | p = pub_opt FN name = IDENT LPAREN self_id = IDENT RPAREN ret_ty = types LBRACE sep_opt body = stmt_list RBRACE
-    { (name, p, self_id, false, [], ret_ty, body) }
-  | p = pub_opt FN name = IDENT LPAREN AMP self_id = IDENT RPAREN ret_ty = types LBRACE sep_opt body = stmt_list RBRACE
-    { (name, p, self_id, true, [], ret_ty, body) }
-  | p = pub_opt FN name = IDENT LPAREN self_id = IDENT COMMA params = separated_list(COMMA, param) RPAREN ret_ty = types LBRACE sep_opt body = stmt_list RBRACE
-    { (name, p, self_id, false, params, ret_ty, body) }
-  | p = pub_opt FN name = IDENT LPAREN AMP self_id = IDENT COMMA params = separated_list(COMMA, param) RPAREN ret_ty = types LBRACE sep_opt body = stmt_list RBRACE
-    { (name, p, self_id, true, params, ret_ty, body) }
+  | p = pub_opt FN name = IDENT tparams = generic_params_opt LPAREN self_id = IDENT RPAREN ret_ty = types LBRACE sep_opt body = stmt_list RBRACE
+    { (name, tparams, p, Some self_id, false, [], ret_ty, body) }
+  | p = pub_opt FN name = IDENT tparams = generic_params_opt LPAREN AMP self_id = IDENT RPAREN ret_ty = types LBRACE sep_opt body = stmt_list RBRACE
+    { (name, tparams, p, Some self_id, true, [], ret_ty, body) }
+  | p = pub_opt FN name = IDENT tparams = generic_params_opt LPAREN self_id = IDENT COMMA params = separated_list(COMMA, param) RPAREN ret_ty = types LBRACE sep_opt body = stmt_list RBRACE
+    { (name, tparams, p, Some self_id, false, params, ret_ty, body) }
+  | p = pub_opt FN name = IDENT tparams = generic_params_opt LPAREN AMP self_id = IDENT COMMA params = separated_list(COMMA, param) RPAREN ret_ty = types LBRACE sep_opt body = stmt_list RBRACE
+    { (name, tparams, p, Some self_id, true, params, ret_ty, body) }
+  | p = pub_opt FN name = IDENT tparams = generic_params_opt LPAREN params = separated_list(COMMA, param) RPAREN ret_ty = types LBRACE sep_opt body = stmt_list RBRACE
+    { (name, tparams, p, None, false, params, ret_ty, body) }
 
 impl_target:
   | id = IDENT { id }

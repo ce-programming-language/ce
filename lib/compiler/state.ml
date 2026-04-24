@@ -10,7 +10,15 @@ type compiler_env = {
   impl_templates :
     ( string,
       (string * types) list
-      * (string * bool * string * bool * param list * types * stmt list) list
+      * (string
+        * (string * types) list
+        * bool
+        * string option
+        * bool
+        * param list
+        * types
+        * stmt list)
+        list
       * string )
     Hashtbl.t;
   fn_templates :

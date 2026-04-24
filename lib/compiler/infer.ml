@@ -88,7 +88,7 @@ let rec infer_ast_type (env : compiler_env) (expr : expr) =
               let _, ty, _ = Hashtbl.find env.named_values name in
               match ty with TArray (_, t) -> t | _ -> TUnknown
             with Not_found -> TUnknown)
-        | Call (name, targs, _) -> (
+        | Call (name, targs, _) ->
             if String.ends_with ~suffix:".as" name && List.length targs = 1 then
               List.hd targs
             else if Hashtbl.mem env.fn_templates name then
@@ -110,25 +110,106 @@ let rec infer_ast_type (env : compiler_env) (expr : expr) =
                 String.sub name (last_dot + 1)
                   (String.length name - last_dot - 1)
               in
-              try
-                let _, ast_ty, _ = Hashtbl.find env.named_values base_path in
-                let actual_ty = match ast_ty with TPointer t -> t | t -> t in
-                let s_name = ast_base_type_name actual_ty in
-                let mangled_name = s_name ^ "::" ^ method_name in
-                let _, _, ret_ty =
-                  Hashtbl.find env.function_types mangled_name
+
+              if
+                Hashtbl.mem env.struct_registry base_path
+                || Hashtbl.mem env.struct_templates base_path
+              then
+                let is_struct_generic =
+                  Hashtbl.mem env.struct_templates base_path
                 in
-                ret_ty
-              with Not_found -> (
+                if is_struct_generic then
+                  try
+                    let s_params, _, _ =
+                      Hashtbl.find env.struct_templates base_path
+                    in
+                    let n_params = List.length s_params in
+                    if n_params > 0 && List.length targs >= n_params then
+                      let rec split_at n xs =
+                        if n = 0 then ([], xs)
+                        else
+                          match xs with
+                          | [] -> ([], [])
+                          | y :: ys ->
+                              let l1, l2 = split_at (n - 1) ys in
+                              (y :: l1, l2)
+                      in
+                      let struct_targs, method_targs =
+                        split_at n_params targs
+                      in
+                      let _, methods, _ =
+                        Hashtbl.find env.impl_templates base_path
+                      in
+                      let m =
+                        List.find
+                          (fun (m_name, _, _, _, _, _, _, _) ->
+                            m_name = method_name)
+                          methods
+                      in
+                      let _, m_tparams, _, _, _, _, ret_ty, _ = m in
+                      let type_map =
+                        List.map2
+                          (fun (p_name, _) arg_ty -> (p_name, arg_ty))
+                          s_params struct_targs
+                      in
+                      let type_map2 =
+                        if List.length m_tparams = List.length method_targs then
+                          List.map2
+                            (fun (p_name, _) arg_ty -> (p_name, arg_ty))
+                            m_tparams method_targs
+                          @ type_map
+                        else type_map
+                      in
+                      substitute_type type_map2 ret_ty
+                    else TUnknown
+                  with Not_found -> TUnknown
+                else
+                  let mangled_name = base_path ^ "::" ^ method_name in
+                  if targs <> [] && Hashtbl.mem env.fn_templates mangled_name
+                  then
+                    try
+                      let tparams, _, ret_ty, _, _, _ =
+                        Hashtbl.find env.fn_templates mangled_name
+                      in
+                      if List.length tparams = List.length targs then
+                        let type_map =
+                          List.map2
+                            (fun (p_name, _) arg_ty -> (p_name, arg_ty))
+                            tparams targs
+                        in
+                        substitute_type type_map ret_ty
+                      else TUnknown
+                    with Not_found -> TUnknown
+                  else
+                    try
+                      let _, _, ret_ty =
+                        Hashtbl.find env.function_types mangled_name
+                      in
+                      ret_ty
+                    with Not_found -> TUnknown
+              else
                 try
-                  let _, _, ret_ty = Hashtbl.find env.function_types name in
+                  let _, ast_ty, _ = Hashtbl.find env.named_values base_path in
+                  let actual_ty =
+                    match ast_ty with TPointer t -> t | t -> t
+                  in
+                  let s_name = ast_base_type_name actual_ty in
+                  let mangled_name = s_name ^ "::" ^ method_name in
+                  let _, _, ret_ty =
+                    Hashtbl.find env.function_types mangled_name
+                  in
                   ret_ty
-                with Not_found -> TUnknown)
+                with Not_found -> (
+                  try
+                    let _, _, ret_ty = Hashtbl.find env.function_types name in
+                    ret_ty
+                  with Not_found -> TUnknown)
             else
-              try
+              begin try
                 let _, _, ret_ty = Hashtbl.find env.function_types name in
                 ret_ty
-              with Not_found -> TUnknown)
+              with Not_found -> TUnknown
+              end
         | Tuple es -> TTuple (List.map (infer_ast_type env) es)
         | AnonFN (params, ret_ty, _) ->
             TFn (List.map (fun (p : param) -> p.ty) params, ret_ty)

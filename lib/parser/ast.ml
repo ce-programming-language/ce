@@ -113,7 +113,15 @@ and stmt_node =
   | Impl of
       string
       * (string * types) list
-      * (string * bool * string * bool * param list * types * stmt list) list
+      * (string
+        * (string * types) list
+        * bool
+        * string option
+        * bool
+        * param list
+        * types
+        * stmt list)
+        list
   | ArrayAssign of string * expr * expr
   | DerefAssign of expr * expr
   | Return of expr

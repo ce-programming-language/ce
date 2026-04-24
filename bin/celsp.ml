@@ -236,7 +236,7 @@ let analyze_document uri src =
         | DefInterface (name, _) -> add_def name s.loc SymbolKind.Interface
         | Impl (_, _, methods) ->
             List.iter
-              (fun (m_name, _, _, _, _, _, body) ->
+              (fun (m_name, _, _, _, _, _, _, body) ->
                 add_def m_name s.loc SymbolKind.Method;
                 List.iter visit_stmt body)
               methods

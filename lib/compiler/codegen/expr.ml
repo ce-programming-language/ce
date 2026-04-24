@@ -455,7 +455,10 @@ module Make (Types : TYPES) : EXPR = struct
 
   and gen_call env compile_stmt_cb loc name targs args =
     let target_name =
-      if targs = [] then name else Types.instantiate_generic_fn env name targs
+      if targs = [] then name
+      else if Hashtbl.mem env.fn_templates name then
+        Types.instantiate_generic_fn env name targs
+      else name
     in
     let builtin_opt = Builtin.get name in
     let direct_callee = Utils.lookup_function env name !ce_module in
@@ -528,31 +531,89 @@ module Make (Types : TYPES) : EXPR = struct
       | _ -> raise (Error.unknown_var_fn ~loc "<unnamed>")
     else if Hashtbl.mem env.fn_templates name then
       raise (Error.generic_requires_type ~loc name)
-    else if is_method then gen_method_call env compile_stmt_cb loc name args
+    else if is_method then
+      gen_method_call env compile_stmt_cb loc name targs args
     else raise (Error.unknown_var_fn ~loc name)
 
-  and gen_method_call env compile_stmt_cb loc name args =
+  and gen_method_call env compile_stmt_cb loc name targs args =
     let last_dot_idx = String.rindex name '.' in
     let base_path = String.sub name 0 last_dot_idx in
     let method_name =
       String.sub name (last_dot_idx + 1) (String.length name - last_dot_idx - 1)
     in
 
-    if Hashtbl.mem env.struct_registry base_path then (
-      let mangled_name = base_path ^ "::" ^ method_name in
+    if
+      Hashtbl.mem env.struct_registry base_path
+      || Hashtbl.mem env.struct_templates base_path
+    then (
+      let is_struct_generic = Hashtbl.mem env.struct_templates base_path in
+      let actual_base_path, method_targs =
+        if is_struct_generic then
+          let params, _, _ = Hashtbl.find env.struct_templates base_path in
+          let n_params = List.length params in
+          if n_params > 0 && List.length targs >= n_params then (
+            let rec split_at n xs =
+              if n = 0 then ([], xs)
+              else
+                match xs with
+                | [] -> ([], [])
+                | y :: ys ->
+                    let l1, l2 = split_at (n - 1) ys in
+                    (y :: l1, l2)
+            in
+            let struct_targs, remaining_targs = split_at n_params targs in
+            ignore
+              (Types.llvm_type_of env (TGenericInst (base_path, struct_targs)));
+
+            let rec process_pending () =
+              if not (Queue.is_empty env.pending_instantiations) then begin
+                let stmt = Queue.pop env.pending_instantiations in
+                let old_mod = !(env.current_module) in
+                let saved_bb =
+                  try Some (insertion_block !ce_builder)
+                  with Not_found -> None
+                in
+                env.current_module := stmt.mod_name;
+                ignore (compile_stmt_cb env stmt);
+                env.current_module := old_mod;
+                (match saved_bb with
+                | Some bb -> position_at_end bb !ce_builder
+                | None -> ());
+                process_pending ()
+              end
+            in
+            process_pending ();
+
+            let instantiated_name =
+              base_path ^ "_"
+              ^ String.concat "_" (List.map show_types struct_targs)
+            in
+            (instantiated_name, remaining_targs))
+          else if n_params = 0 then (base_path, targs)
+          else raise (Error.generic_requires_type base_path)
+        else (base_path, targs)
+      in
+
+      let mangled_name = actual_base_path ^ "::" ^ method_name in
       (match Hashtbl.find_opt env.method_registry mangled_name with
       | Some (is_pub, def_mod) ->
           if (not is_pub) && !(env.current_module) <> def_mod then
             raise
-              (Error.cant_access_private_on_struct ~loc method_name base_path)
+              (Error.cant_access_private_on_struct ~loc method_name
+                 actual_base_path)
       | None -> ());
 
-      let callee =
-        match Utils.lookup_function env mangled_name !ce_module with
-        | Some c -> c
-        | None -> raise (Error.unknown_method loc method_name base_path)
+      let target_name =
+        if method_targs = [] then mangled_name
+        else Types.instantiate_generic_fn env mangled_name method_targs
       in
-      let ft, param_ast_tys, _ = Hashtbl.find env.function_types mangled_name in
+
+      let callee =
+        match Utils.lookup_function env target_name !ce_module with
+        | Some c -> c
+        | None -> raise (Error.unknown_method loc method_name actual_base_path)
+      in
+      let ft, param_ast_tys, _ = Hashtbl.find env.function_types target_name in
       let arg_vals =
         process_args env compile_stmt_cb loc (param_types ft) param_ast_tys args
           0 0
@@ -638,13 +699,19 @@ module Make (Types : TYPES) : EXPR = struct
               raise
                 (Error.cant_call_private_on_struct ~loc method_name clean_name)
         | None -> ());
+
+        let target_name =
+          if targs = [] then mangled_name
+          else Types.instantiate_generic_fn env mangled_name targs
+        in
+
         let callee =
-          match Utils.lookup_function env mangled_name !ce_module with
+          match Utils.lookup_function env target_name !ce_module with
           | Some c -> c
           | None -> raise (Error.unknown_method loc method_name clean_name)
         in
         let ft, param_ast_tys, _ =
-          Hashtbl.find env.function_types mangled_name
+          Hashtbl.find env.function_types target_name
         in
         let expected_tys = param_types ft in
         let expected_self_ty = expected_tys.(0) in

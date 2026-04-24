@@ -102,8 +102,9 @@ module Make () : TYPES = struct
                 let specialized_methods =
                   List.map
                     (fun ( m_name,
+                           m_tparams,
                            is_pub,
-                           self_id,
+                           self_id_opt,
                            is_ptr,
                            m_params,
                            ret_ty,
@@ -117,17 +118,27 @@ module Make () : TYPES = struct
                             })
                           m_params
                       in
+                      let sub_tparams =
+                        List.map
+                          (fun (n, ty) -> (n, substitute_type type_map ty))
+                          m_tparams
+                      in
                       let sub_ret_ty = substitute_type type_map ret_ty in
                       let sub_body = List.map (substitute_stmt type_map) body in
 
                       let mangled_method = mangled_name ^ "::" ^ m_name in
-                      let self_ty =
-                        if is_ptr then TPointer (TNamed mangled_name)
-                        else TNamed mangled_name
-                      in
+
                       let all_sub_params =
-                        { param_name = self_id; ty = self_ty } :: sub_params
+                        match self_id_opt with
+                        | Some self_id ->
+                            let self_ty =
+                              if is_ptr then TPointer (TNamed mangled_name)
+                              else TNamed mangled_name
+                            in
+                            { param_name = self_id; ty = self_ty } :: sub_params
+                        | None -> sub_params
                       in
+
                       let param_types =
                         Array.of_list
                           (List.map
@@ -141,10 +152,8 @@ module Make () : TYPES = struct
                         ( ft,
                           List.map (fun (p : param) -> p.ty) all_sub_params,
                           sub_ret_ty );
-
                       Hashtbl.replace env.method_registry mangled_method
                         (is_pub, def_impl_mod);
-
                       let _ =
                         match
                           Llvm.lookup_function mangled_method !ce_module
@@ -160,8 +169,9 @@ module Make () : TYPES = struct
                       in
 
                       ( m_name,
+                        sub_tparams,
                         is_pub,
-                        self_id,
+                        self_id_opt,
                         is_ptr,
                         sub_params,
                         sub_ret_ty,

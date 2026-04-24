@@ -570,8 +570,14 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         end
         else begin
           List.iter
-            (fun (method_name, is_pub, self_id, is_ptr, m_params, ret_ty, body)
-               ->
+            (fun ( method_name,
+                   m_tparams,
+                   is_pub,
+                   self_id_opt,
+                   is_ptr,
+                   m_params,
+                   ret_ty,
+                   body ) ->
               let mangled_name = name ^ "::" ^ method_name in
               let base_ty =
                 match name with
@@ -593,9 +599,17 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                 | _ -> TNamed name
               in
 
-              let self_ty = if is_ptr then TPointer base_ty else base_ty in
-              let self_param = { param_name = self_id; ty = self_ty } in
-              let all_params = self_param :: m_params in
+              let all_params =
+                match self_id_opt with
+                | Some self_id ->
+                    let self_ty =
+                      if is_ptr then TPointer base_ty else base_ty
+                    in
+                    let self_param = { param_name = self_id; ty = self_ty } in
+                    self_param :: m_params
+                | None -> m_params
+              in
+
               let param_types =
                 Array.of_list
                   (List.map
@@ -609,7 +623,6 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                 (ft, List.map (fun (p : param) -> p.ty) all_params, ret_ty);
               Hashtbl.replace env.method_registry mangled_name
                 (is_pub, !(env.current_module));
-
               let _ =
                 match Llvm.lookup_function mangled_name !ce_module with
                 | Some existing -> existing
@@ -621,7 +634,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
 
               let fn_stmt =
                 Utils.mk_stmt
-                  (DefFN (mangled_name, [], all_params, ret_ty, body))
+                  (DefFN (mangled_name, m_tparams, all_params, ret_ty, body))
               in
               Queue.push
                 { fn_stmt with mod_name = !(env.current_module); is_pub }
