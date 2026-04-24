@@ -637,4 +637,15 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           | None -> declare_function c_name ft !ce_module
         in
         const_null (void_type ce_ctx)
+    | ExternLet (alias_opt, name, ty) ->
+        let c_name = match alias_opt with Some a -> a | None -> name in
+        if c_name <> name then Hashtbl.add env.extern_aliases name c_name;
+        let ll_ty = Types.llvm_type_of env ty in
+        let global_var =
+          match Llvm.lookup_global c_name !ce_module with
+          | Some g -> g
+          | None -> Llvm.declare_global ll_ty c_name !ce_module
+        in
+        Hashtbl.add env.named_values name (global_var, ty, false);
+        const_null (void_type ce_ctx)
 end

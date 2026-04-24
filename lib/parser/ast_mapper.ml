@@ -118,6 +118,8 @@ class mapper =
                 params
             in
             ExternFN (alias, name, s_params, self#map_type ret_ty)
+        | ExternLet (alias, name, ty) ->
+            ExternLet (alias, name, self#map_type ty)
         | DefFN (name, tparams, params, ret_ty, body) ->
             let map_tparam (n, ty) = (n, self#map_type ty) in
             let s_params =

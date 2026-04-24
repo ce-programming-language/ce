@@ -95,6 +95,9 @@ class namespacer prefix decls =
               s with
               node = ExternFN (alias, self#apply_namespace name, params, ret_ty);
             }
+      | ExternLet (alias, name, ty) ->
+          super#map_stmt
+            { s with node = ExternLet (alias, self#apply_namespace name, ty) }
       | Impl (name, params, methods) ->
           super#map_stmt
             { s with node = Impl (self#apply_namespace name, params, methods) }
@@ -135,6 +138,7 @@ let rec process_file_inner visited filepath namespace_prefix mod_name =
             | DefStruct (name, _, _) -> Some name
             | DefInterface (name, _) -> Some name
             | ExternFN (_, name, _, _) -> Some name
+            | ExternLet (_, name, _) -> Some name
             | DefLet (name, _, _, _) -> Some name
             | _ -> None
           in
@@ -177,6 +181,7 @@ let rec process_file_inner visited filepath namespace_prefix mod_name =
                       | DefStruct (name, _, _) -> List.mem name names
                       | DefInterface (name, _) -> List.mem name names
                       | ExternFN (_, name, _, _) -> List.mem name names
+                      | ExternLet (_, name, _) -> List.mem name names
                       | Impl (name, _, _) -> List.mem name names
                       | DefLet (name, _, _, _) -> List.mem name names
                       | _ -> false

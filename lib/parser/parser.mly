@@ -326,6 +326,10 @@ def_extern:
       { (if p then mk_stmt_pub else mk_stmt false) $startpos $endpos @@  ExternFN (None, name, params, ty) }
   | p = pub_opt EXTERN alias = STRING FN name = IDENT LPAREN params = separated_list(COMMA, param) RPAREN ty = types
       { (if p then mk_stmt_pub else mk_stmt false) $startpos $endpos @@  ExternFN (Some alias, name, params, ty) }
+  | p = pub_opt EXTERN LET name = IDENT ty = types
+      { (if p then mk_stmt_pub else mk_stmt false) $startpos $endpos @@  ExternLet (None, name, ty) }
+  | p = pub_opt EXTERN alias = STRING LET name = IDENT ty = types
+      { (if p then mk_stmt_pub else mk_stmt false) $startpos $endpos @@  ExternLet (Some alias, name, ty) }
 
 fn_signature_list:
   | s = fn_signature                                            { [s] }

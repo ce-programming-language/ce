@@ -126,3 +126,4 @@ and stmt_node =
   | Raise of expr
   | DefInterface of string * fn_signature list
   | ExternFN of string option * string * param list * types
+  | ExternLet of string option * string * types
