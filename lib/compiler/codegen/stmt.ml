@@ -29,11 +29,14 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
               && elems.(2) = pointer_type ce_ctx
           | _ -> false
         in
-        if is_result then
+        if is_result then begin
+          let ast_ty = infer_ast_type env e in
+          let expected_ast_ty = match ast_ty with TResult t -> t | t -> t in
           ignore
-            (Expr.coerce_value env s.loc
+            (Expr.coerce_value env s.loc expected_ast_ty
                (struct_element_types ty).(1)
-               v false false);
+               v false false)
+        end;
         const_null (void_type ce_ctx)
     | DefLet (name, ismut, ty, expr_opt) ->
         let raw_val_opt, inferred_ty =
@@ -61,7 +64,8 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           | Some raw_val ->
               let src_ty = infer_ast_type env (Option.get expr_opt) in
               let is_src_u = is_unsigned src_ty in
-              Expr.coerce_value env s.loc ll_ty raw_val false is_src_u
+              Expr.coerce_value env s.loc inferred_ty ll_ty raw_val false
+                is_src_u
           | None -> const_null ll_ty
         in
         let the_function = block_parent (insertion_block !ce_builder) in
@@ -228,7 +232,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           end
     | Assign (name, expr) ->
         let val_ = Expr.codegen env codegen expr in
-        let var_ptr, expected_ll_ty, is_u =
+        let var_ptr, expected_ll_ty, expected_ast_ty, is_u =
           if String.contains name '.' then
             let parts = String.split_on_char '.' name in
             let base_name = List.hd parts in
@@ -247,9 +251,9 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
               else v
             in
 
-            let rec resolve_assign ptr ty props =
+            let rec resolve_assign ptr ty ast_ty props =
               match props with
-              | [] -> (ptr, ty)
+              | [] -> (ptr, ty, ast_ty)
               | prop :: rest -> (
                   match struct_name ty with
                   | Some s_name ->
@@ -257,7 +261,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                       let _, field_map, def_mod =
                         Hashtbl.find env.struct_registry clean_name
                       in
-                      let _, idx, is_mut, _, is_pub =
+                      let _, idx, is_mut, f_ast_ty, is_pub =
                         try
                           List.find (fun (n, _, _, _, _) -> n = prop) field_map
                         with Not_found ->
@@ -278,32 +282,39 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                         build_struct_gep ty ptr idx "prop_ptr" !ce_builder
                       in
                       let next_ty = (struct_element_types ty).(idx) in
-                      resolve_assign next_ptr next_ty rest
+                      resolve_assign next_ptr next_ty f_ast_ty rest
                   | None ->
                       let idx = int_of_string prop in
                       let next_ptr =
                         build_struct_gep ty ptr idx "tuple_ptr" !ce_builder
                       in
                       let next_ty = (struct_element_types ty).(idx) in
-                      resolve_assign next_ptr next_ty rest)
+                      let f_ast_ty =
+                        match ast_ty with
+                        | TTuple ts -> List.nth ts idx
+                        | _ -> TUnknown
+                      in
+                      resolve_assign next_ptr next_ty f_ast_ty rest)
             in
 
-            let final_ptr, final_ty =
-              resolve_assign base_ptr base_struct_llty (List.tl parts)
+            let final_ptr, final_ty, final_ast_ty =
+              resolve_assign base_ptr base_struct_llty base_struct_ast_ty
+                (List.tl parts)
             in
-            (final_ptr, final_ty, false)
+            (final_ptr, final_ty, final_ast_ty, false)
           else
             let v, ast_ty, ismut =
               try Hashtbl.find env.named_values name
               with Not_found -> raise (Error.unknown_var_fn ~loc:s.loc name)
             in
             if not ismut then raise (Error.cant_assign_immutable_var s.loc name);
-            (v, Types.llvm_type_of env ast_ty, is_unsigned ast_ty)
+            (v, Types.llvm_type_of env ast_ty, ast_ty, is_unsigned ast_ty)
         in
         let src_ty = infer_ast_type env expr in
         let is_src_u = is_unsigned src_ty in
         let val_to_store =
-          Expr.coerce_value env s.loc expected_ll_ty val_ is_u is_src_u
+          Expr.coerce_value env s.loc expected_ast_ty expected_ll_ty val_ is_u
+            is_src_u
         in
         Utils.Stmt.gen_assignment !ce_builder expected_ll_ty var_ptr
           val_to_store
@@ -328,8 +339,15 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
             array_ptr_val indices "arrayidx" !ce_builder
         in
         let expected_ll_ty = element_type (Types.llvm_type_of env array_ty) in
+        let expected_ast_ty =
+          match array_ty with TArray (_, t) -> t | _ -> TUnknown
+        in
+        let coerced_val =
+          Expr.coerce_value env s.loc expected_ast_ty expected_ll_ty
+            val_to_store false false
+        in
         Utils.Stmt.gen_assignment !ce_builder expected_ll_ty element_ptr
-          val_to_store
+          coerced_val
     | DerefAssign (ptr_expr, val_expr) ->
         let actual_ptr = Expr.codegen env codegen ptr_expr in
         let ptr_ast_ty = infer_ast_type env ptr_expr in
@@ -346,7 +364,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         let is_src_u = is_unsigned src_ty in
         let expected_ll_ty = Types.llvm_type_of env expected_ast_ty in
         let val_to_store =
-          Expr.coerce_value env s.loc
+          Expr.coerce_value env s.loc expected_ast_ty
             (Types.llvm_type_of env expected_ast_ty)
             raw_val
             (is_unsigned expected_ast_ty)
