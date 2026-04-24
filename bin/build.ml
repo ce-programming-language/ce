@@ -52,7 +52,7 @@ class namespacer prefix decls =
     method apply_namespace name =
       match List.assoc_opt name decls with
       | Some is_pub ->
-          if is_pub then prefix ^ "." ^ name else prefix ^ ".__priv_" ^ name
+          if is_pub then prefix ^ "." ^ name else prefix ^ "." ^ name
       | None -> name
 
     method! map_type t =

@@ -137,6 +137,14 @@ impl Slice<T any> {
       current = -1
     }
   }
+
+  pub fn write(&self, p Slice<T>) !int {
+    for i = 0; i < p.len(); i = i + 1 {
+      self._append(p.get(i))
+    }
+
+    return p.len()
+  }
 }
 
 pub fn new<T any>(cap int) Slice<T> {

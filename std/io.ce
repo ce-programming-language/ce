@@ -4,10 +4,10 @@ pub extern "stdout" let c_stdout *void
 pub extern "stderr" let c_stderr *void
 pub extern "stdin" let c_stdin *void
 
-trait reader { 
+pub trait reader { 
   fn read(buf slices.Slice<char>) !int
 }
 
-trait writer {
+pub trait writer {
   fn write(p slices.Slice<char>) !int
 } 
