@@ -254,14 +254,14 @@ module Make (Types : TYPES) : EXPR = struct
         raise (Error.cant_access_prop_on_nonstruct ~loc prop);
 
       let clean_name =
-        try ast_base_type_name current_ast_ty
-        with _ -> (
+        let from_ast =
+          try ast_base_type_name current_ast_ty with _ -> "unknown"
+        in
+        if from_ast <> "unknown" then from_ast
+        else
           match struct_name current_ty with
-          | Some s_name ->
-              if String.starts_with ~prefix:"struct." s_name then
-                String.sub s_name 7 (String.length s_name - 7)
-              else s_name
-          | None -> raise (Error.cant_access_prop_on_nonstruct ~loc prop))
+          | Some s_name -> clean_struct_name s_name
+          | None -> raise (Error.cant_access_prop_on_nonstruct ~loc prop)
       in
       begin match Hashtbl.find_opt env.struct_registry clean_name with
       | Some (_, field_map, def_mod) ->

@@ -327,7 +327,14 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                   | prop :: rest -> (
                       match struct_name ty with
                       | Some s_name ->
-                          let clean_name = clean_struct_name s_name in
+                          let clean_name =
+                            let from_ast =
+                              try ast_base_type_name ast_ty
+                              with _ -> "unknown"
+                            in
+                            if from_ast <> "unknown" then from_ast
+                            else clean_struct_name s_name
+                          in
                           let _, field_map, def_mod =
                             try Hashtbl.find env.struct_registry clean_name
                             with Not_found ->
