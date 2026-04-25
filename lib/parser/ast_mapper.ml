@@ -38,6 +38,8 @@ class mapper =
         | Array (n, ty, elems) ->
             Array (n, self#map_type ty, List.map self#map_expr elems)
         | ArrayAccess (name, idx) -> ArrayAccess (name, self#map_expr idx)
+        | Slice (ty, elems) ->
+            Slice (self#map_type ty, List.map self#map_expr elems)
         | If (cond, then_b, elifs, else_b) ->
             let map_elif (c, b) = (self#map_expr c, List.map self#map_stmt b) in
             If

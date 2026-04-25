@@ -76,6 +76,7 @@ and expr_node =
   | Tuple of expr list
   | AnonFN of param list * types * stmt list
   | CatchExpr of expr * expr
+  | Slice of types * expr list
 [@@deriving show]
 
 and param = { param_name : string; ty : types }

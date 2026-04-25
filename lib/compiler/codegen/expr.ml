@@ -295,6 +295,7 @@ module Make (Types : TYPES) : EXPR = struct
     | Array (n, ty, elems) -> gen_array env compile_stmt_cb n ty elems
     | ArrayAccess (name, index_expr) ->
         gen_array_access env compile_stmt_cb e.loc name index_expr
+    | Slice (ty, elems) -> gen_slice env compile_stmt_cb e.loc ty elems
     | If (cond, then_body, elif_branches, else_body) ->
         gen_if env compile_stmt_cb cond then_body elif_branches else_body
     | AnonFN (params, ret_ty, body) ->
@@ -892,6 +893,64 @@ module Make (Types : TYPES) : EXPR = struct
         "arrayidx" !ce_builder
     in
     build_load (element_type llvm_array_ty) element_ptr "loadtmp" !ce_builder
+
+  and gen_slice env compile_stmt_cb loc ty elems =
+    let len = List.length elems in
+    let slice_ast_ty = TGenericInst ("slices.Slice", [ ty ]) in
+    let slice_ll_ty = Types.llvm_type_of env slice_ast_ty in
+    let elem_ll_ty = Types.llvm_type_of env ty in
+
+    let ptr_ty = pointer_type ce_ctx in
+
+    let array_ptr =
+      if len > 0 then begin
+        let gc_malloc_ty = function_type ptr_ty [| i64_type ce_ctx |] in
+        let gc_malloc_fn =
+          match Utils.lookup_function env "GC_malloc" !ce_module with
+          | Some f -> f
+          | None -> declare_function "GC_malloc" gc_malloc_ty !ce_module
+        in
+        let size_val = size_of elem_ll_ty in
+        let total_size =
+          build_mul
+            (const_int (i64_type ce_ctx) len)
+            size_val "alloc_size" !ce_builder
+        in
+        let ptr_raw =
+          build_call gc_malloc_ty gc_malloc_fn [| total_size |] "slice_alloc"
+            !ce_builder
+        in
+        build_bitcast ptr_raw ptr_ty "slice_ptr" !ce_builder
+      end
+      else const_null ptr_ty
+    in
+
+    List.iteri
+      (fun i arg_expr ->
+        let arg_val = codegen env compile_stmt_cb arg_expr in
+        let coerced =
+          coerce_value env loc
+            (infer_ast_type env arg_expr)
+            ty elem_ll_ty arg_val false false
+        in
+        let gep =
+          build_in_bounds_gep elem_ll_ty array_ptr
+            [| const_int (i32_type ce_ctx) i |]
+            "slice_gep" !ce_builder
+        in
+        ignore (build_store coerced gep !ce_builder))
+      elems;
+
+    let s0 = const_null slice_ll_ty in
+    let s1 = build_insertvalue s0 array_ptr 0 "slice_ptr" !ce_builder in
+    let s2 =
+      build_insertvalue s1
+        (const_int (i32_type ce_ctx) len)
+        1 "slice_len" !ce_builder
+    in
+    build_insertvalue s2
+      (const_int (i32_type ce_ctx) len)
+      2 "slice_cap" !ce_builder
 
   and cb_yield env compile_stmt_cb stmts =
     let rec aux = function

@@ -218,6 +218,7 @@ type_scalar:
 types:
   | t = type_scalar                       { t }
   | LBRACKET n = INT RBRACKET ty = types  { TArray (n, ty) }
+  | LBRACKET RBRACKET ty = types          { TGenericInst ("slices.Slice", [ty]) }
   | STAR ty = types                       { TPointer ty }
   | name = path LT arg_tys = separated_nonempty_list(COMMA, types) GT { TGenericInst (name, arg_tys) }
   | BANG ty = types                       { TResult ty }
@@ -386,6 +387,7 @@ expr_simple:
   | LPAREN e = expr COMMA rest = separated_nonempty_list(COMMA, expr) RPAREN { mk_expr $startpos $endpos @@ Tuple (e :: rest) }
   | FN LPAREN RPAREN ty = types body = block { mk_expr $startpos $endpos @@ AnonFN([], ty, body) }
   | FN LPAREN params = separated_nonempty_list(COMMA, param) RPAREN ty = types body = block { mk_expr $startpos $endpos @@ AnonFN(params, ty, body) }
+  | LBRACKET RBRACKET ty = types LBRACE elems = separated_list(COMMA, expr) RBRACE { mk_expr $startpos $endpos @@ Slice (ty, elems) }
 
 expr:
   | e = expr_simple               { e }
@@ -425,6 +427,7 @@ expr_simple_no_struct:
   | LPAREN e = expr_no_struct COMMA rest = separated_nonempty_list(COMMA, expr) RPAREN { mk_expr $startpos $endpos @@ Tuple (e :: rest) }
   | FN LPAREN RPAREN ty = types body = block { mk_expr $startpos $endpos @@ AnonFN([], ty, body) }
   | FN LPAREN params = separated_nonempty_list(COMMA, param) RPAREN ty = types body = block { mk_expr $startpos $endpos @@ AnonFN(params, ty, body) }
+  | LBRACKET RBRACKET ty = types LBRACE elems = separated_list(COMMA, expr) RBRACE { mk_expr $startpos $endpos @@ Slice (ty, elems) }
 
 expr_no_struct:
   | e = expr_simple_no_struct                     { e }

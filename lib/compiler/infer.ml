@@ -15,6 +15,7 @@ let rec infer_ast_type (env : compiler_env) (expr : expr) =
         | Char _ -> TInt (8, Unsigned)
         | String _ -> TString
         | Array (n, ty, _) -> TArray (n, ty)
+        | Slice (ty, _) -> TGenericInst ("slices.Slice", [ ty ])
         | Catch (_, _, ty, _) -> ty
         | CatchExpr (e, _) -> (
             match infer_ast_type env e with TResult t -> t | t -> t)
