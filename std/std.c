@@ -5,6 +5,7 @@
 #include <string.h>
 
 extern void* GC_malloc(size_t size);
+extern void* GC_realloc(void* ptr, size_t size);
 
 typedef struct {
     void* data;
@@ -119,4 +120,82 @@ char* unsafe_format(ce_any_t* val_ptr) {
     }
     
     return result;
+}
+
+char* unsafe_typeof(ce_any_t* val_ptr) {
+    if (!val_ptr) {
+        char* res = (char*)GC_malloc(6);
+        strcpy(res, "<nil>");
+        return res;
+    }
+
+    ce_any_t val = *val_ptr;
+    intptr_t tag = (intptr_t)val.tag_or_vtable;
+    const char* type_str = "unknown";
+
+    switch (tag) {
+        case 1: type_str = "int"; break;
+        case 2: type_str = "float"; break;
+        case 3: type_str = "bool"; break;
+        case 4: type_str = "string"; break;
+        case 5: type_str = "char"; break;
+        case 6: type_str = "[]int"; break;
+        case 7: type_str = "[]float"; break;
+        case 8: type_str = "[]bool"; break;
+        case 9: type_str = "[]string"; break;
+        case 10: type_str = "[]char"; break;
+    }
+
+    size_t len = strlen(type_str);
+    char* result = (char*)GC_malloc(len + 1);
+    strcpy(result, type_str);
+    
+    return result;
+}
+
+size_t unsafe_sizeof(ce_any_t* val_ptr) {
+    if (!val_ptr) {
+        return 0;
+    }
+
+    ce_any_t val = *val_ptr;
+    intptr_t tag = (intptr_t)val.tag_or_vtable;
+
+    switch (tag) {
+        case 1: 
+            return sizeof(int32_t);
+        case 2: 
+            return sizeof(double);
+        case 3: 
+            return sizeof(bool);
+        case 4: 
+            return sizeof(char*);
+        case 5: 
+            return sizeof(char);
+        case 6:
+        case 7:
+        case 8:
+        case 9:
+        case 10: 
+            return sizeof(ce_slice_t);
+        default: 
+            return 0; 
+    }
+}
+
+void* unsafe_malloc(size_t size) {
+    if (size == 0) {
+        return NULL;
+    }
+    return GC_malloc(size);
+}
+
+void* unsafe_realloc(void* ptr, size_t size) {
+    if (size == 0) {
+        return NULL; 
+    }
+    if (!ptr) {
+        return GC_malloc(size);
+    }
+    return GC_realloc(ptr, size);
 }
