@@ -91,7 +91,10 @@ let rec infer_ast_type (env : compiler_env) (expr : expr) =
         | ArrayAccess (name, _) -> (
             try
               let _, ty, _ = Hashtbl.find env.named_values name in
-              match ty with TArray (_, t) -> t | _ -> TUnknown
+              match ty with
+              | TArray (_, t) -> t
+              | TGenericInst ("slices.Slice", [ t ]) -> t
+              | _ -> TUnknown
             with Not_found -> TUnknown)
         | Call (name, targs, _) ->
             if String.ends_with ~suffix:".as" name && List.length targs = 1 then

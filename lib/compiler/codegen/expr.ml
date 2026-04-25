@@ -885,14 +885,32 @@ module Make (Types : TYPES) : EXPR = struct
       | Some (v, ty, _) -> (v, ty)
       | None -> raise (Error.unknown_var_fn ~loc name)
     in
-    let llvm_array_ty = Types.llvm_type_of env array_ty in
     let idx_val = codegen env compile_stmt_cb index_expr in
-    let element_ptr =
-      build_in_bounds_gep llvm_array_ty array_ptr_val
-        [| const_int (i32_type ce_ctx) 0; idx_val |]
-        "arrayidx" !ce_builder
-    in
-    build_load (element_type llvm_array_ty) element_ptr "loadtmp" !ce_builder
+    match array_ty with
+    | TArray _ ->
+        let llvm_array_ty = Types.llvm_type_of env array_ty in
+        let element_ptr =
+          build_in_bounds_gep llvm_array_ty array_ptr_val
+            [| const_int (i32_type ce_ctx) 0; idx_val |]
+            "arrayidx" !ce_builder
+        in
+        build_load
+          (element_type llvm_array_ty)
+          element_ptr "loadtmp" !ce_builder
+    | TGenericInst ("slices.Slice", [ elem_ast_ty ]) ->
+        let slice_val =
+          build_load
+            (Types.llvm_type_of env array_ty)
+            array_ptr_val "sliceload" !ce_builder
+        in
+        let data_ptr = build_extractvalue slice_val 0 "slice_ptr" !ce_builder in
+        let elem_ll_ty = Types.llvm_type_of env elem_ast_ty in
+        let element_ptr =
+          build_in_bounds_gep elem_ll_ty data_ptr [| idx_val |] "sliceidx"
+            !ce_builder
+        in
+        build_load elem_ll_ty element_ptr "loadtmp" !ce_builder
+    | _ -> raise (Error.Error "Cannot index non-array and non-slice type")
 
   and gen_slice env compile_stmt_cb loc ty elems =
     let len = List.length elems in
