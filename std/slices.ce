@@ -45,7 +45,7 @@ impl Slice<T any> {
 
   pub fn iter(self) *SliceIter<T> {
     let mock = SliceIter<T>{}
-    let it = malloc(sizeof(mock))
+    let it *SliceIter<T> = malloc(sizeof(mock))
     it.slice = self
     it.current = -1
     return it
