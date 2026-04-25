@@ -28,7 +28,6 @@ end
 let registry = Hashtbl.create 20
 
 let initialize context the_module builder =
-  Io.register context the_module builder registry;
   Memory.register context the_module builder registry;
   Cast.register context the_module builder registry
 
