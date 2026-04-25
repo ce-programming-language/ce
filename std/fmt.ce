@@ -1,0 +1,37 @@
+import slices
+import io
+import strings
+import os
+
+extern "unsafe_format" fn unsafe_format(val any) string
+
+pub fn fprint(writer io.writer, args ...any) void {
+  let iter = args.iter()
+
+  for iter.next() {
+    let val = iter.value()
+    let s string = unsafe_format(&val)
+    writer.write(s.chars())
+  }
+}
+
+pub fn print(args ...any) void {
+  let iter = args.iter()
+  
+  for iter.next() {
+    let val = iter.value()
+    let s string = unsafe_format(&val)
+    os.stdout.writeString(s)
+  }
+}
+
+pub fn println(args ...any) void {
+  let iter = args.iter()
+  
+  for iter.next() {
+    let val = iter.value()
+    let s string = unsafe_format(&val)
+    os.stdout.writeString(s)
+  }
+  print("\n")
+}

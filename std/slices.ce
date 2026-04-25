@@ -1,41 +1,41 @@
 import slices
 
-struct SliceIter<T any> {
+pub struct SliceIter<T any> {
   mut slice Slice<T>;
   mut current int;
 }
 
 impl SliceIter<T any> {
-  fn next(&self) bool {
+  pub fn next(&self) bool {
     self.current = self.current + 1
     return self.current < self.slice._len
   }
 
-  fn index(&self) int {
+  pub fn index(&self) int {
     return self.current
   }
 
-  fn value(&self) T {
+  pub fn value(&self) T {
     let x T
     let item_size int = sizeof(x)
-    let target *T = self.slice.ptr + (self.current * item_size)
+    let target *T = self.slice.ptr() + (self.current * item_size)
     return *target
   }
 
-  fn entry(self) (int, T) {
+  pub fn entry(self) (int, T) {
     return (self.index(), self.value())
   }
 }
 
 pub struct Slice<T any> {
-  mut ptr *T;
+  mut _ptr *T;
   mut _len int;
   mut cap int;
 }
 
 impl Slice<T any> {
   pub fn new(cap int) Slice<T> {
-    let s Slice<T> = Slice<T>{ptr = malloc<T>(cap); _len = cap; cap = cap}
+    let s Slice<T> = Slice<T>{_ptr = malloc<T>(cap); _len = cap; cap = cap}
     return s
   }
 
@@ -43,11 +43,15 @@ impl Slice<T any> {
     return self._len
   }
 
+  pub fn ptr(&self) *T {
+    return self._ptr
+  }
+
   pub fn get(self, index int) !T {
     assert(self._len > index, "unbound index")
 
-    let start *T = self.ptr
-    let search *T = self.ptr + (index * sizeof(*start))
+    let start *T = self._ptr
+    let search *T = self._ptr + (index * sizeof(*start))
     return *search
   }
 
@@ -56,7 +60,7 @@ impl Slice<T any> {
     assert(self._len > index, "index out of bounds")
 
     let item_size int = sizeof(v)
-    let target *T = self.ptr + (index * item_size)
+    let target *T = self._ptr + (index * item_size)
     *target = v
   }
 
@@ -65,12 +69,11 @@ impl Slice<T any> {
 
     if self._len >= self.cap {
       let new_cap int = if self.cap == 0 { 4 } else { self.cap * 2 }
-      
-      self.ptr = realloc<T>(self.ptr, new_cap)
+      self._ptr = realloc<T>(self._ptr, new_cap)
       self.cap = new_cap
     }
 
-    let target *T = self.ptr + (self._len * so)
+    let target *T = self._ptr + (self._len * so)
     *target = item
     
     self._len = self._len + 1
@@ -127,8 +130,8 @@ impl Slice<T any> {
     let num_to_move int = self._len - end
 
     for i = 0; i < num_to_move; i = i + 1 {
-      let target_ptr *T = self.ptr + ((start + i) * item_size)
-      let source_ptr *T = self.ptr + ((end + i) * item_size)
+      let target_ptr *T = self._ptr + ((start + i) * item_size)
+      let source_ptr *T = self._ptr + ((end + i) * item_size)
       *target_ptr = *source_ptr
     }
     self._len = self._len - num_to_delete

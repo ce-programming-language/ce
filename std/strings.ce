@@ -1,5 +1,21 @@
 import slices
 
+pub fn from_chars(chars slices.Slice<char>) string {
+  let len uint = chars.len()
+  let new_ptr *char = malloc<char>(len + 1)
+  
+  for i = 0; i < len; i = i + 1 {
+      let target *char = new_ptr + i
+      *target = chars.get(i) catch(e) char { return "" }
+  }
+  
+  let null_char char = 0
+  let end_target *char = new_ptr + len
+  *end_target = null_char
+  
+  return new_ptr
+}
+
 impl string {
   pub fn at(self, index uint) char {
     let ptr *char = self 
@@ -8,15 +24,8 @@ impl string {
   }
 
   pub fn clone(self) string {
-    let length uint = self.len()
-    let new_ptr *char = malloc<char>(length + 1)
-    
-    for i = 0; i <= length; i = i + 1 {
-      let mut newPtrI = new_ptr + i
-      *newPtrI = self.at(i)
-    }
-    
-    return new_ptr
+    let chars = self.chars()
+    return from_chars(chars)
   }
 
   pub fn compare(self, other string) int {
@@ -139,13 +148,12 @@ impl string {
   }
 
   pub fn chars(self) slices.Slice<char> {
-      let c = slices.new<char>(0)
-      for i = 0; i < self.len(); i = i + 1 {
-          c.append(self.at(i))
-        }
-
-        return c
+    let c = slices.Slice.new<char>(0)
+    for i = 0; i < self.len(); i = i + 1 {
+        c.append(self.at(i))
     }
+    return c
+  }
 
   pub fn substring(self, start uint, end uint) string {
     if start >= end {
@@ -168,18 +176,3 @@ impl string {
   }
 }
 
-pub fn from_chars(chars slices.Slice<char>) string {
-  let len uint = chars.len()
-  let new_ptr *char = malloc<char>(len + 1)
-  
-  for i = 0; i < len; i = i + 1 {
-      let target *char = new_ptr + i
-      *target = chars.get(i) catch(e) char { return "" }
-  }
-  
-  let null_char char = 0
-  let end_target *char = new_ptr + len
-  *end_target = null_char
-  
-  return new_ptr
-}

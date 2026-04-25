@@ -109,6 +109,15 @@ class namespacer prefix decls =
       | Impl (name, params, methods) ->
           super#map_stmt
             { s with node = Impl (self#apply_namespace name, params, methods) }
+      | DefLet (name, is_mut, ty, e_opt) ->
+          super#map_stmt
+            {
+              s with
+              node = DefLet (self#apply_namespace name, is_mut, ty, e_opt);
+            }
+      | DefType (name, ty) ->
+          super#map_stmt
+            { s with node = DefType (self#apply_namespace name, ty) }
       | Assign (name, e) ->
           super#map_stmt { s with node = Assign (self#apply_namespace name, e) }
       | ArrayAssign (name, idx, e) ->
@@ -153,6 +162,7 @@ let rec process_file_inner visited filepath namespace_prefix mod_name =
             | ExternFN (_, name, _, _) -> Some name
             | ExternLet (_, name, _) -> Some name
             | DefLet (name, _, _, _) -> Some name
+            | DefType (name, _) -> Some name
             | _ -> None
           in
           match name_opt with
@@ -197,6 +207,7 @@ let rec process_file_inner visited filepath namespace_prefix mod_name =
                       | ExternLet (_, name, _) -> List.mem name names
                       | Impl (name, _, _) -> List.mem name names
                       | DefLet (name, _, _, _) -> List.mem name names
+                      | DefType (name, _) -> List.mem name names
                       | _ -> false
                     in
                     let is_impl =
@@ -233,6 +244,23 @@ let process_file visited filepath =
   let main_ast = process_file_inner visited filepath None "main" in
   prelude_ast @ main_ast
 
+let resolve_std_c () =
+  let rel_path = "std/std.c" in
+  if Sys.file_exists rel_path then rel_path
+  else
+    let env_path =
+      match Sys.getenv_opt "CE_STD_PATH" with
+      | Some p -> Filename.concat p rel_path
+      | None -> ""
+    in
+    if env_path <> "" && Sys.file_exists env_path then env_path
+    else
+      let local_std_path = Filename.concat "./std" "std.c" in
+      if Sys.file_exists local_std_path then local_std_path
+      else
+        let global_std_path = "/usr/lib/ce/std/std.c" in
+        if Sys.file_exists global_std_path then global_std_path else ""
+
 let export binary_name the_modules =
   ignore (Llvm_all_backends.initialize ());
   let target_triple = Target.default_triple () in
@@ -256,8 +284,11 @@ let export binary_name the_modules =
       the_modules
   in
 
+  let std_c_path = resolve_std_c () in
   let objs_str = String.concat " " obj_files in
-  let link_cmd = Printf.sprintf "cc %s -lgc -o %s" objs_str binary_name in
+  let link_cmd =
+    Printf.sprintf "cc %s %s -lgc -o %s" objs_str std_c_path binary_name
+  in
   match Sys.command link_cmd with
   | 0 ->
       List.iter (fun o -> if Sys.file_exists o then Sys.remove o) obj_files;

@@ -104,7 +104,9 @@ module Make (Types : TYPES) : EXPR = struct
     in
     let vtable_ptr =
       match expected_ast_ty with
-      | TNamed trait_name when Hashtbl.mem env.interface_registry trait_name ->
+      | TNamed trait_name
+        when Hashtbl.mem env.interface_registry trait_name
+             && trait_name <> "any" && trait_name <> "std.any" ->
           let sigs = Hashtbl.find env.interface_registry trait_name in
           let base_ast_ty =
             match actual_ast_ty with TPointer t -> t | t -> t
@@ -326,42 +328,60 @@ module Make (Types : TYPES) : EXPR = struct
         else raise (Error.cant_apply_operator e.loc "NOT (!)")
 
   and gen_let env compile_stmt_cb loc name =
-    let is_property = String.contains name '.' in
-    if not is_property then
-      match Hashtbl.find_opt env.named_values name with
-      | Some (v, ast_ty, _) ->
-          build_load (Types.llvm_type_of env ast_ty) v name !ce_builder
-      | None -> (
-          match Utils.lookup_function env name !ce_module with
-          | Some f -> f
-          | None -> raise (Error.unknown_var_fn ~loc name))
-    else
-      let parts = String.split_on_char '.' name in
-      let base_name = List.hd parts in
-      let props = List.tl parts in
-      let base_val, base_ast_ty =
-        match Hashtbl.find_opt env.named_values base_name with
-        | Some (v, ast_ty, _) -> (v, ast_ty)
-        | None -> raise (Error.unknown_var_fn ~loc base_name)
-      in
-      let is_ptr = match base_ast_ty with TPointer _ -> true | _ -> false in
-      let base_struct_ast_ty =
-        match base_ast_ty with TPointer t -> t | t -> t
-      in
-      let base_val_loaded =
-        build_load
-          (Types.llvm_type_of env base_ast_ty)
-          base_val base_name !ce_builder
-      in
-      let base_struct_val, base_struct_llty =
-        if is_ptr then
-          let ll_struct_ty = Types.llvm_type_of env base_struct_ast_ty in
-          ( build_load ll_struct_ty base_val_loaded "auto_deref" !ce_builder,
-            ll_struct_ty )
-        else (base_val_loaded, Types.llvm_type_of env base_struct_ast_ty)
-      in
-      extract_property env loc base_struct_val base_struct_ast_ty
-        base_struct_llty props
+    let builder_module =
+      global_parent (block_parent (insertion_block !ce_builder))
+    in
+    match Hashtbl.find_opt env.named_values name with
+    | Some (v, ast_ty, _) ->
+        let actual_v =
+          Utils.resolve_cross_module v builder_module
+            (Types.llvm_type_of env ast_ty)
+            name
+        in
+        build_load (Types.llvm_type_of env ast_ty) actual_v name !ce_builder
+    | None -> (
+        match Utils.lookup_function env name !ce_module with
+        | Some f -> f
+        | None ->
+            if String.contains name '.' then
+              let parts = String.split_on_char '.' name in
+              let base_name = List.hd parts in
+              let props = List.tl parts in
+              let base_val, base_ast_ty =
+                match Hashtbl.find_opt env.named_values base_name with
+                | Some (v, ast_ty, _) ->
+                    let actual_v =
+                      Utils.resolve_cross_module v builder_module
+                        (Types.llvm_type_of env ast_ty)
+                        base_name
+                    in
+                    (actual_v, ast_ty)
+                | None -> raise (Error.unknown_var_fn ~loc base_name)
+              in
+              let is_ptr =
+                match base_ast_ty with TPointer _ -> true | _ -> false
+              in
+              let base_struct_ast_ty =
+                match base_ast_ty with TPointer t -> t | t -> t
+              in
+              let base_val_loaded =
+                build_load
+                  (Types.llvm_type_of env base_ast_ty)
+                  base_val base_name !ce_builder
+              in
+              let base_struct_val, base_struct_llty =
+                if is_ptr then
+                  let ll_struct_ty =
+                    Types.llvm_type_of env base_struct_ast_ty
+                  in
+                  ( build_load ll_struct_ty base_val_loaded "auto_deref"
+                      !ce_builder,
+                    ll_struct_ty )
+                else (base_val_loaded, Types.llvm_type_of env base_struct_ast_ty)
+              in
+              extract_property env loc base_struct_val base_struct_ast_ty
+                base_struct_llty props
+            else raise (Error.unknown_var_fn ~loc name))
 
   and process_args env compile_stmt_cb e_loc expected_tys param_ast_tys args
       offset_ll offset_ast n_reg_args =
@@ -493,7 +513,13 @@ module Make (Types : TYPES) : EXPR = struct
       let call_name =
         if return_type ft = void_type ce_ctx then "" else "calltmp"
       in
-      build_call ft callee (Array.of_list arg_vals) call_name !ce_builder
+      let builder_module =
+        global_parent (block_parent (insertion_block !ce_builder))
+      in
+      let actual_callee =
+        Utils.resolve_cross_module callee builder_module ft (value_name callee)
+      in
+      build_call ft actual_callee (Array.of_list arg_vals) call_name !ce_builder
     else if Option.is_some generic_callee then
       let callee = Option.get generic_callee in
       let ft, param_ast_tys, _ = Hashtbl.find env.function_types target_name in
@@ -505,7 +531,13 @@ module Make (Types : TYPES) : EXPR = struct
       let call_name =
         if return_type ft = void_type ce_ctx then "" else "calltmp"
       in
-      build_call ft callee (Array.of_list arg_vals) call_name !ce_builder
+      let builder_module =
+        global_parent (block_parent (insertion_block !ce_builder))
+      in
+      let actual_callee =
+        Utils.resolve_cross_module callee builder_module ft (value_name callee)
+      in
+      build_call ft actual_callee (Array.of_list arg_vals) call_name !ce_builder
     else if is_fn_var then
       let fn_val = codegen env compile_stmt_cb (Utils.mk_expr @@ Let name) in
       match Infer.infer_ast_type env (Utils.mk_expr @@ Let name) with
@@ -565,24 +597,9 @@ module Make (Types : TYPES) : EXPR = struct
             ignore
               (Types.llvm_type_of env (TGenericInst (base_path, struct_targs)));
 
-            let rec process_pending () =
-              if not (Queue.is_empty env.pending_instantiations) then begin
-                let stmt = Queue.pop env.pending_instantiations in
-                let old_mod = !(env.current_module) in
-                let saved_bb =
-                  try Some (insertion_block !ce_builder)
-                  with Not_found -> None
-                in
-                env.current_module := stmt.mod_name;
-                ignore (compile_stmt_cb env stmt);
-                env.current_module := old_mod;
-                (match saved_bb with
-                | Some bb -> position_at_end bb !ce_builder
-                | None -> ());
-                process_pending ()
-              end
-            in
-            process_pending ();
+            (match !(env.process_pending_cb) with
+            | Some cb -> cb ()
+            | None -> ());
 
             let instantiated_name =
               base_path ^ "_"
@@ -613,7 +630,11 @@ module Make (Types : TYPES) : EXPR = struct
         | Some c -> c
         | None -> raise (Error.unknown_method loc method_name actual_base_path)
       in
-      let ft, param_ast_tys, _ = Hashtbl.find env.function_types target_name in
+      let ft, param_ast_tys, _ =
+        try Hashtbl.find env.function_types target_name
+        with Not_found ->
+          raise (Error.unknown_method loc method_name actual_base_path)
+      in
       let arg_vals =
         process_args env compile_stmt_cb loc (param_types ft) param_ast_tys args
           0 0
@@ -622,7 +643,13 @@ module Make (Types : TYPES) : EXPR = struct
       let call_name =
         if return_type ft = void_type ce_ctx then "" else "staticcalltmp"
       in
-      build_call ft callee (Array.of_list arg_vals) call_name !ce_builder)
+      let builder_module =
+        global_parent (block_parent (insertion_block !ce_builder))
+      in
+      let actual_callee =
+        Utils.resolve_cross_module callee builder_module ft (value_name callee)
+      in
+      build_call ft actual_callee (Array.of_list arg_vals) call_name !ce_builder)
     else
       let self_val =
         try codegen env compile_stmt_cb (Utils.mk_expr @@ Let base_path)
@@ -711,33 +738,50 @@ module Make (Types : TYPES) : EXPR = struct
           | None -> raise (Error.unknown_method loc method_name clean_name)
         in
         let ft, param_ast_tys, _ =
-          Hashtbl.find env.function_types target_name
+          try Hashtbl.find env.function_types target_name
+          with Not_found ->
+            raise (Error.unknown_method loc method_name clean_name)
         in
         let expected_tys = param_types ft in
         let expected_self_ty = expected_tys.(0) in
         let expected_self_ast_ty = List.hd param_ast_tys in
 
         let get_ptr_to_name path =
-          if String.contains path '.' then
-            let parts = String.split_on_char '.' path in
-            let base_name = List.hd parts in
-            let v, ast_ty, _ = Hashtbl.find env.named_values base_name in
-            let is_ptr, base_struct_ast_ty =
-              match ast_ty with TPointer t -> (true, t) | t -> (false, t)
-            in
-            let base_ptr =
-              if is_ptr then
-                build_load
-                  (Types.llvm_type_of env ast_ty)
-                  v "auto_deref_ptr" !ce_builder
-              else v
-            in
-            resolve_property_ptr env Types.llvm_type_of base_ptr
-              (Types.llvm_type_of env base_struct_ast_ty)
-              base_struct_ast_ty (List.tl parts)
-          else
-            let v, _, _ = Hashtbl.find env.named_values path in
-            v
+          let builder_module =
+            global_parent (block_parent (insertion_block !ce_builder))
+          in
+          match Hashtbl.find_opt env.named_values path with
+          | Some (v, ast_ty, _) ->
+              Utils.resolve_cross_module v builder_module
+                (Types.llvm_type_of env ast_ty)
+                path
+          | None ->
+              if String.contains path '.' then
+                let parts = String.split_on_char '.' path in
+                let base_name = List.hd parts in
+                let v, ast_ty, _ =
+                  try Hashtbl.find env.named_values base_name
+                  with Not_found ->
+                    raise (Error.unknown_var_fn ~loc base_name)
+                in
+                let is_ptr, base_struct_ast_ty =
+                  match ast_ty with TPointer t -> (true, t) | t -> (false, t)
+                in
+                let actual_v =
+                  Utils.resolve_cross_module v builder_module
+                    (Types.llvm_type_of env ast_ty)
+                    base_name
+                in
+                let base_ptr =
+                  if is_ptr then
+                    build_load (pointer_type ce_ctx) actual_v "auto_deref_ptr"
+                      !ce_builder
+                  else actual_v
+                in
+                resolve_property_ptr env Types.llvm_type_of base_ptr
+                  (Types.llvm_type_of env base_struct_ast_ty)
+                  base_struct_ast_ty (List.tl parts)
+              else raise (Error.unknown_var_fn ~loc path)
         in
 
         let expects_ptr =
@@ -761,7 +805,14 @@ module Make (Types : TYPES) : EXPR = struct
         let call_name =
           if return_type ft = void_type ce_ctx then "" else "methodcalltmp"
         in
-        build_call ft callee all_args call_name !ce_builder
+        let builder_module =
+          global_parent (block_parent (insertion_block !ce_builder))
+        in
+        let actual_callee =
+          Utils.resolve_cross_module callee builder_module ft
+            (value_name callee)
+        in
+        build_call ft actual_callee all_args call_name !ce_builder
       end
 
   and gen_struct env compile_stmt_cb loc name type_args fields =
@@ -780,7 +831,8 @@ module Make (Types : TYPES) : EXPR = struct
     List.iter
       (fun (fname, fexpr) ->
         let name, fidx, _, f_ast_ty, is_pub =
-          List.find (fun (n, _, _, _, _) -> n = fname) field_map
+          try List.find (fun (n, _, _, _, _) -> n = fname) field_map
+          with Not_found -> raise (Error.unknown_prop loc fname mangled_name)
         in
         if (not is_pub) && !(env.current_module) <> def_mod then
           raise (Error.cant_access_private_on_struct ~loc fname name);
@@ -1083,13 +1135,23 @@ module Make (Types : TYPES) : EXPR = struct
       build_bitcast env_ptr_raw (pointer_type ce_ctx) "env_ptr" !ce_builder
     in
 
+    let builder_module =
+      global_parent (block_parent (insertion_block !ce_builder))
+    in
     List.iteri
-      (fun i (_, v, ty, _) ->
+      (fun i (k, v, ty, _) ->
         let gep =
           build_struct_gep env_struct_ty env_ptr i "env_gep" !ce_builder
         in
+        let actual_v =
+          Utils.resolve_cross_module v builder_module
+            (Types.llvm_type_of env ty)
+            k
+        in
         let loaded_val =
-          build_load (Types.llvm_type_of env ty) v "capture_load" !ce_builder
+          build_load
+            (Types.llvm_type_of env ty)
+            actual_v "capture_load" !ce_builder
         in
         ignore (build_store loaded_val gep !ce_builder))
       live_vars;
@@ -1176,31 +1238,41 @@ module Make (Types : TYPES) : EXPR = struct
   and gen_ref env loc ref_e =
     match ref_e.node with
     | Let name -> (
-        if String.contains name '.' then
-          let parts = String.split_on_char '.' name in
-          let base_name = List.hd parts in
-          let v, ast_ty, _ =
-            try Hashtbl.find env.named_values base_name
-            with Not_found -> raise (Error.unknown_var_fn ~loc base_name)
-          in
-          let is_ptr, base_struct_ast_ty =
-            match ast_ty with TPointer t -> (true, t) | t -> (false, t)
-          in
-          let base_ptr =
-            if is_ptr then
-              build_load
-                (Types.llvm_type_of env ast_ty)
-                v "auto_deref_ptr" !ce_builder
-            else v
-          in
-          resolve_property_ptr env Types.llvm_type_of base_ptr
-            (Types.llvm_type_of env base_struct_ast_ty)
-            base_struct_ast_ty (List.tl parts)
-        else
-          try
-            let ptr_val, _, _ = Hashtbl.find env.named_values name in
-            ptr_val
-          with Not_found -> raise (Error.unknown_var_fn ~loc name))
+        let builder_module =
+          global_parent (block_parent (insertion_block !ce_builder))
+        in
+        match Hashtbl.find_opt env.named_values name with
+        | Some (v, ast_ty, _) ->
+            Utils.resolve_cross_module v builder_module
+              (Types.llvm_type_of env ast_ty)
+              name
+        | None ->
+            if String.contains name '.' then
+              let parts = String.split_on_char '.' name in
+              let base_name = List.hd parts in
+              let v, ast_ty, _ =
+                try Hashtbl.find env.named_values base_name
+                with Not_found -> raise (Error.unknown_var_fn ~loc base_name)
+              in
+              let is_ptr, base_struct_ast_ty =
+                match ast_ty with TPointer t -> (true, t) | t -> (false, t)
+              in
+              let actual_v =
+                Utils.resolve_cross_module v builder_module
+                  (Types.llvm_type_of env ast_ty)
+                  base_name
+              in
+              let base_ptr =
+                if is_ptr then
+                  build_load
+                    (Types.llvm_type_of env ast_ty)
+                    actual_v "auto_deref_ptr" !ce_builder
+                else actual_v
+              in
+              resolve_property_ptr env Types.llvm_type_of base_ptr
+                (Types.llvm_type_of env base_struct_ast_ty)
+                base_struct_ast_ty (List.tl parts)
+            else raise (Error.unknown_var_fn ~loc name))
     | _ -> raise (Error.cant_reference_nonvar loc)
 
   and gen_deref env compile_stmt_cb loc deref_e =

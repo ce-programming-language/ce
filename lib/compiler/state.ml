@@ -37,6 +37,7 @@ type compiler_env = {
   current_fn_ret_ty : lltype ref;
   current_module : string ref;
   pending_instantiations : Ce_parser.Ast.stmt Queue.t;
+  process_pending_cb : (unit -> unit) option ref;
 }
 
 let create_env context =
@@ -56,4 +57,5 @@ let create_env context =
     current_fn_ret_ty = ref @@ void_type context;
     current_module = ref "main";
     pending_instantiations = Queue.create ();
+    process_pending_cb = ref None;
   }

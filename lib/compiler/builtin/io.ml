@@ -2,7 +2,7 @@ open Llvm
 open Ce_parser.Ast
 open Codegen
 
-let register context the_module builder registry =
+let register _context _the_module _builder registry =
   let get_printf context the_module =
     match lookup_function "printf" the_module with
     | Some f -> f
@@ -21,11 +21,9 @@ let register context the_module builder registry =
         let ft = function_type (void_type context) [| any_ty |] in
         let f = declare_function "__print_any" ft the_module in
         set_linkage Linkage.Internal f;
-
         let saved_bb = insertion_block builder in
         let bb = append_block context "entry" f in
         position_at_end bb builder;
-
         let any_val = param f 0 in
         let data_ptr = build_extractvalue any_val 0 "data" builder in
         let tag_ptr = build_extractvalue any_val 1 "tag_ptr" builder in
@@ -110,8 +108,8 @@ let register context the_module builder registry =
         f
   in
   let print_fn =
-   fun ctx md bldr fn_name arg_vals targ_lltypes arg_asts targs codegen_expr
-       llvm_type_of infer_ast_type ->
+   fun context the_module builder fn_name arg_vals targ_lltypes arg_asts targs
+       codegen_expr llvm_type_of infer_ast_type ->
     let printf_func = get_printf context the_module in
     let printf_ty =
       var_arg_function_type (i32_type context) [| pointer_type context |]
@@ -237,7 +235,6 @@ let register context the_module builder registry =
                 let merge_bb = append_block context "res_merge" the_func in
 
                 ignore (build_cond_br is_err err_bb ok_bb builder);
-
                 position_at_end err_bb builder;
                 let err_msg = build_extractvalue v 2 "err_msg" builder in
                 let err_fmt =
@@ -254,7 +251,6 @@ let register context the_module builder registry =
                   match ast_ty with TResult t -> t | _ -> TUnknown
                 in
                 print_arg ok_val ok_ast_ty;
-
                 ignore (build_br merge_bb builder);
 
                 position_at_end merge_bb builder
@@ -279,7 +275,6 @@ let register context the_module builder registry =
         print_arg v ast_ty;
         if i < len - 1 then print_str " ")
       arg_vals;
-
     if fn_name = "println" then print_str "\n";
 
     const_int (i32_type context) 0

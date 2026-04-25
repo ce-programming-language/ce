@@ -69,15 +69,30 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           | None -> const_null ll_ty
         in
         let the_function = block_parent (insertion_block !ce_builder) in
-        let alloca_ce_builder =
-          builder_at ce_ctx (instr_begin (entry_block the_function))
-        in
+        if value_name the_function = "__ce_global_init" then begin
+          let global_var = define_global name (const_null ll_ty) !ce_module in
+          if not s.is_pub then set_linkage Linkage.Internal global_var;
 
-        let alloca = build_alloca ll_ty name alloca_ce_builder in
-        ignore (Utils.Stmt.gen_assignment !ce_builder ll_ty alloca init_val);
+          let builder_module = global_parent the_function in
+          let local_global_var =
+            Utils.resolve_cross_module global_var builder_module ll_ty name
+          in
 
-        Hashtbl.add env.named_values name (alloca, inferred_ty, ismut);
-        alloca
+          ignore
+            (Utils.Stmt.gen_assignment !ce_builder ll_ty local_global_var
+               init_val);
+          Hashtbl.add env.named_values name (global_var, inferred_ty, ismut);
+          global_var
+        end
+        else begin
+          let alloca_ce_builder =
+            builder_at ce_ctx (instr_begin (entry_block the_function))
+          in
+          let alloca = build_alloca ll_ty name alloca_ce_builder in
+          ignore (Utils.Stmt.gen_assignment !ce_builder ll_ty alloca init_val);
+          Hashtbl.add env.named_values name (alloca, inferred_ty, ismut);
+          alloca
+        end
     | DefFN (name, tparams, params, ret_ty, body) ->
         if name = "main" && not s.is_pub then
           raise (Error.main_must_public s.loc);
@@ -151,6 +166,25 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
             let c_main_f = declare_function "main" c_main_ty !ce_module in
             let c_bb = append_block ce_ctx "entry" c_main_f in
             let c_builder = builder_at_end ce_ctx c_bb in
+
+            let gc_init_ty = function_type (void_type ce_ctx) [||] in
+            let gc_init_f =
+              match Utils.lookup_function env "GC_init" !ce_module with
+              | Some f -> f
+              | None -> declare_function "GC_init" gc_init_ty !ce_module
+            in
+            ignore (build_call gc_init_ty gc_init_f [||] "" c_builder);
+
+            let init_f_opt =
+              Utils.lookup_function env "__ce_global_init" !ce_module
+            in
+            (match init_f_opt with
+            | Some init_f ->
+                ignore
+                  (build_call
+                     (function_type (void_type ce_ctx) [||])
+                     init_f [||] "" c_builder)
+            | None -> ());
 
             let call_name = if ret_ty = TVoid then "" else "main_call" in
             let call_res = build_call ft f [||] call_name c_builder in
@@ -232,83 +266,112 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           end
     | Assign (name, expr) ->
         let val_ = Expr.codegen env codegen expr in
+        let builder_module =
+          global_parent (block_parent (insertion_block !ce_builder))
+        in
         let var_ptr, expected_ll_ty, expected_ast_ty, is_u =
-          if String.contains name '.' then
-            let parts = String.split_on_char '.' name in
-            let base_name = List.hd parts in
-            let v, ast_ty, _ = Hashtbl.find env.named_values base_name in
-
-            let is_ptr, base_struct_ast_ty =
-              match ast_ty with TPointer t -> (true, t) | t -> (false, t)
-            in
-            let base_struct_llty = Types.llvm_type_of env base_struct_ast_ty in
-
-            let base_ptr =
-              if is_ptr then
-                build_load
+          match Hashtbl.find_opt env.named_values name with
+          | Some (v, ast_ty, ismut) ->
+              if not ismut then
+                raise (Error.cant_assign_immutable_var s.loc name);
+              let actual_v =
+                Utils.resolve_cross_module v builder_module
                   (Types.llvm_type_of env ast_ty)
-                  v "auto_deref_ptr" !ce_builder
-              else v
-            in
+                  name
+              in
+              ( actual_v,
+                Types.llvm_type_of env ast_ty,
+                ast_ty,
+                is_unsigned ast_ty )
+          | None ->
+              if String.contains name '.' then
+                let parts = String.split_on_char '.' name in
+                let base_name = List.hd parts in
+                let v, ast_ty, _ =
+                  try Hashtbl.find env.named_values base_name
+                  with Not_found ->
+                    raise (Error.unknown_var_fn ~loc:s.loc base_name)
+                in
+                let is_ptr, base_struct_ast_ty =
+                  match ast_ty with TPointer t -> (true, t) | t -> (false, t)
+                in
+                let base_struct_llty =
+                  Types.llvm_type_of env base_struct_ast_ty
+                in
+                let actual_v =
+                  Utils.resolve_cross_module v builder_module
+                    (Types.llvm_type_of env ast_ty)
+                    base_name
+                in
+                let base_ptr =
+                  if is_ptr then
+                    build_load
+                      (Types.llvm_type_of env ast_ty)
+                      actual_v "auto_deref_ptr" !ce_builder
+                  else actual_v
+                in
 
-            let rec resolve_assign ptr ty ast_ty props =
-              match props with
-              | [] -> (ptr, ty, ast_ty)
-              | prop :: rest -> (
-                  match struct_name ty with
-                  | Some s_name ->
-                      let clean_name = clean_struct_name s_name in
-                      let _, field_map, def_mod =
-                        Hashtbl.find env.struct_registry clean_name
-                      in
-                      let _, idx, is_mut, f_ast_ty, is_pub =
-                        try
-                          List.find (fun (n, _, _, _, _) -> n = prop) field_map
-                        with Not_found ->
-                          raise (Error.unknown_prop s.loc prop clean_name)
-                      in
+                let rec resolve_assign ptr ty ast_ty props =
+                  match props with
+                  | [] -> (ptr, ty, ast_ty)
+                  | prop :: rest -> (
+                      match struct_name ty with
+                      | Some s_name ->
+                          let clean_name = clean_struct_name s_name in
+                          let _, field_map, def_mod =
+                            try Hashtbl.find env.struct_registry clean_name
+                            with Not_found ->
+                              raise
+                                (Error.Error ("Struct not found: " ^ clean_name))
+                          in
+                          let field_opt =
+                            List.find_opt
+                              (fun (n, _, _, _, _) -> n = prop)
+                              field_map
+                          in
+                          if Option.is_none field_opt then
+                            raise (Error.unknown_prop s.loc prop clean_name);
 
-                      if (not is_pub) && !(env.current_module) <> def_mod then
-                        raise
-                          (Error.cant_access_private_on_struct ~loc:s.loc prop
-                             clean_name);
+                          let _, idx, is_mut, f_ast_ty, is_pub =
+                            Option.get field_opt
+                          in
 
-                      if rest = [] && not is_mut then
-                        raise
-                          (Error.cant_assign_immutable_field s.loc prop
-                             clean_name);
+                          if (not is_pub) && !(env.current_module) <> def_mod
+                          then
+                            raise
+                              (Error.cant_access_private_on_struct ~loc:s.loc
+                                 prop clean_name);
 
-                      let next_ptr =
-                        build_struct_gep ty ptr idx "prop_ptr" !ce_builder
-                      in
-                      let next_ty = (struct_element_types ty).(idx) in
-                      resolve_assign next_ptr next_ty f_ast_ty rest
-                  | None ->
-                      let idx = int_of_string prop in
-                      let next_ptr =
-                        build_struct_gep ty ptr idx "tuple_ptr" !ce_builder
-                      in
-                      let next_ty = (struct_element_types ty).(idx) in
-                      let f_ast_ty =
-                        match ast_ty with
-                        | TTuple ts -> List.nth ts idx
-                        | _ -> TUnknown
-                      in
-                      resolve_assign next_ptr next_ty f_ast_ty rest)
-            in
+                          if rest = [] && not is_mut then
+                            raise
+                              (Error.cant_assign_immutable_field s.loc prop
+                                 clean_name);
 
-            let final_ptr, final_ty, final_ast_ty =
-              resolve_assign base_ptr base_struct_llty base_struct_ast_ty
-                (List.tl parts)
-            in
-            (final_ptr, final_ty, final_ast_ty, false)
-          else
-            let v, ast_ty, ismut =
-              try Hashtbl.find env.named_values name
-              with Not_found -> raise (Error.unknown_var_fn ~loc:s.loc name)
-            in
-            if not ismut then raise (Error.cant_assign_immutable_var s.loc name);
-            (v, Types.llvm_type_of env ast_ty, ast_ty, is_unsigned ast_ty)
+                          let next_ptr =
+                            build_struct_gep ty ptr idx "prop_ptr" !ce_builder
+                          in
+                          let next_ty = (struct_element_types ty).(idx) in
+                          resolve_assign next_ptr next_ty f_ast_ty rest
+                      | None ->
+                          let idx = int_of_string prop in
+                          let next_ptr =
+                            build_struct_gep ty ptr idx "tuple_ptr" !ce_builder
+                          in
+                          let next_ty = (struct_element_types ty).(idx) in
+                          let f_ast_ty =
+                            match ast_ty with
+                            | TTuple ts -> List.nth ts idx
+                            | _ -> TUnknown
+                          in
+                          resolve_assign next_ptr next_ty f_ast_ty rest)
+                in
+
+                let final_ptr, final_ty, final_ast_ty =
+                  resolve_assign base_ptr base_struct_llty base_struct_ast_ty
+                    (List.tl parts)
+                in
+                (final_ptr, final_ty, final_ast_ty, false)
+              else raise (Error.unknown_var_fn ~loc:s.loc name)
         in
         let src_ty = infer_ast_type env expr in
         let is_src_u = is_unsigned src_ty in
@@ -324,7 +387,15 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           | Some (v, ty, ismut) ->
               if not ismut then
                 raise (Error.cant_assign_immutable_arr s.loc name);
-              (v, ty)
+              let builder_module =
+                global_parent (block_parent (insertion_block !ce_builder))
+              in
+              let actual_v =
+                Utils.resolve_cross_module v builder_module
+                  (Types.llvm_type_of env ty)
+                  name
+              in
+              (actual_v, ty)
           | None -> raise (Error.unknown_var_fn ~loc:s.loc name)
         in
 

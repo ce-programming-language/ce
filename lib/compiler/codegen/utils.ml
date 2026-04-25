@@ -17,28 +17,77 @@ and resolve_property_ptr env llvm_type_of current_ptr current_llty
         let base_ast_ty = match ast_ty with TPointer t -> t | t -> t in
         let actual_ty = llvm_type_of env base_ast_ty in
         let actual_ptr =
-          if is_ptr then build_load actual_ty ptr "deref_ptr" !ce_builder
+          if is_ptr then
+            build_load (pointer_type ce_ctx) ptr "deref_ptr" !ce_builder
           else ptr
         in
         match classify_type actual_ty with
         | TypeKind.Struct ->
-            let clean_name = ast_base_type_name base_ast_ty in
+            let clean_name =
+              try ast_base_type_name base_ast_ty
+              with _ -> (
+                match struct_name actual_ty with
+                | Some sn -> clean_struct_name sn
+                | None -> "<unknown>")
+            in
             let _, field_map, def_mod =
-              Hashtbl.find env.struct_registry clean_name
+              try Hashtbl.find env.struct_registry clean_name
+              with Not_found -> (
+                let fallback_name =
+                  match struct_name actual_ty with
+                  | Some sn -> clean_struct_name sn
+                  | None -> clean_name
+                in
+                try Hashtbl.find env.struct_registry fallback_name
+                with Not_found ->
+                  raise
+                    (Error.Error
+                       ("Struct not found in registry: " ^ clean_name ^ " / "
+                      ^ fallback_name)))
             in
-            let _, idx, _, next_ast_ty, is_pub =
-              List.find (fun (n, _, _, _, _) -> n = prop) field_map
+            let field_opt =
+              List.find_opt (fun (n, _, _, _, _) -> n = prop) field_map
             in
+            if Option.is_none field_opt then
+              raise
+                (Error.Error
+                   ("Unknown property '" ^ prop ^ "' on struct '" ^ clean_name
+                  ^ "'"));
+            let _, idx, _, next_ast_ty, is_pub = Option.get field_opt in
             if (not is_pub) && !(env.current_module) <> def_mod then
-              raise (Error.cant_access_private_on_struct prop clean_name);
+              raise
+                (Error.Error
+                   ("Cannot access private property '" ^ prop ^ "' on struct '"
+                  ^ clean_name ^ "'"));
             let next_ptr =
               build_struct_gep actual_ty actual_ptr idx "prop_ptr" !ce_builder
             in
             let next_ty = (struct_element_types actual_ty).(idx) in
             get_gep next_ptr next_ty next_ast_ty rest
-        | _ -> raise (Error.cant_access_prop_on_nonstruct prop))
+        | _ ->
+            raise
+              (Error.Error
+                 ("Cannot access property '" ^ prop ^ "' on non-struct")))
   in
   get_gep current_ptr current_llty current_ast_ty props
+
+and resolve_cross_module v builder_module ty _name =
+  let kind = classify_value v in
+  if kind = ValueKind.GlobalVariable || kind = ValueKind.Function then
+    let val_module = global_parent v in
+    if val_module != builder_module then
+      let v_name = value_name v in
+      let actual_name = if v_name = "" then _name else v_name in
+      if kind = ValueKind.GlobalVariable then
+        match Llvm.lookup_global actual_name builder_module with
+        | Some g -> g
+        | None -> declare_global ty actual_name builder_module
+      else
+        match Llvm.lookup_function actual_name builder_module with
+        | Some f -> f
+        | None -> declare_function actual_name ty builder_module
+    else v
+  else v
 
 and is_unsigned = function TInt (_, Unsigned) -> true | _ -> false
 
@@ -54,20 +103,29 @@ and ast_base_type_name = function
   | TString -> "string"
   | TBool -> "bool"
   | TChar -> "char"
-  | TInt (size, sign) ->
-      let prefix = match sign with Signed -> "i" | Unsigned -> "u" in
-      let bits =
-        match size with
-        | I8 -> "8"
-        | I16 -> "16"
-        | I32 -> "32"
-        | I64 -> "64"
-        | I128 -> "128"
-      in
-      prefix ^ bits
+  | TInt (size, sign) -> (
+      match (size, sign) with
+      | I32, Signed -> "int"
+      | I32, Unsigned -> "uint"
+      | _ ->
+          let prefix = match sign with Signed -> "i" | Unsigned -> "u" in
+          let bits =
+            match size with
+            | I8 -> "8"
+            | I16 -> "16"
+            | I32 -> "32"
+            | I64 -> "64"
+            | I128 -> "128"
+          in
+          prefix ^ bits)
   | TFloat F32 -> "f32"
-  | TFloat F64 -> "f64"
-  | _ -> raise Not_found
+  | TFloat F64 -> "float"
+  | TVoid -> "void"
+  | TPointer t -> ast_base_type_name t
+  | TArray (_, t) -> ast_base_type_name t
+  | TResult t -> ast_base_type_name t
+  | TUnknown -> "unknown"
+  | _ -> "unknown"
 
 and build_ptr_arith lv rv op name =
   let ptr_int = build_ptrtoint lv (i64_type ce_ctx) "pti" !ce_builder in

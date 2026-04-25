@@ -1,0 +1,58 @@
+import slices
+
+type size_t u64
+
+extern "read" fn c_read(fd int, buf *char, count size_t) int
+extern "write" fn c_write(fd int, buf *char, count size_t) int
+
+pub struct File {
+  mut fd int;
+}
+
+impl File {
+  pub fn new(fd int) *File {
+    let f = malloc<File>(1)
+    f.fd = fd
+    return f
+  }
+
+  pub fn write(&self, p slices.Slice<char>) !int {
+    let plen = p.len()
+    let p_len size_t = plen.as<size_t>()
+    let bytes_written = c_write(self.fd, p.ptr(), p_len)
+
+    if bytes_written < 0 {
+      raise "Error: Failed to write to file"
+    }
+    
+    return bytes_written
+  }
+
+  pub fn writeString(&self, msg string) !int {
+    let mlen = msg.len()
+    let m_len size_t = mlen.as<size_t>()
+    let bytes_written = c_write(self.fd, msg, m_len)
+
+    if bytes_written < 0 {
+      raise "Error: Failed to write string to file"
+    }
+    
+    return bytes_written
+  }
+
+  pub fn read(&self, buf slices.Slice<char>) !int {
+    let blen = buf.len()
+    let buf_len size_t = blen.as<size_t>()
+    let bytes_read = c_read(self.fd, buf.ptr(), buf_len)
+    
+    if bytes_read < 0 {
+      raise "Error: Failed to read from file"
+    }
+    
+    return bytes_read
+  }
+}
+
+pub let stdin *File = File.new(0)
+pub let stdout *File = File.new(1)
+pub let stderr *File = File.new(2)

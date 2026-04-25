@@ -186,6 +186,10 @@ module Make () : TYPES = struct
                   env.pending_instantiations
             | None -> ());
 
+            (match !(env.process_pending_cb) with
+            | Some cb -> cb ()
+            | None -> ());
+
             (match saved_bb with
             | Some bb -> position_at_end bb !ce_builder
             | None -> ());
