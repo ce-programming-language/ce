@@ -185,7 +185,10 @@ module Make () : TYPES = struct
             (match saved_bb with
             | Some bb -> position_at_end bb !ce_builder
             | None -> ());
-            let llty, _, _ = Hashtbl.find env.struct_registry mangled_name in
+            let llty, _, _ =
+              try Hashtbl.find env.struct_registry mangled_name
+              with Not_found -> raise (Error.unknown_type mangled_name)
+            in
             llty)
     | TTuple ts ->
         struct_type ce_ctx (Array.of_list (List.map (llvm_type_of env) ts))

@@ -25,14 +25,20 @@ pub fn typeof(x any) string {
   return "unknown"
 }
 
-pub fn malloc<T any>(size uint) *T {
-  let dummy T
-  return &dummy
+pub fn typeof(val any) string {
+  return unsafe_typeof(val)
 }
 
-pub fn realloc<T any>(ptr *T, new_size uint) *T {
-  let dummy T
-  return &dummy
+pub fn sizeof(val any) size_t {
+  return unsafe_sizeof(val)
+}
+
+pub fn malloc<T any>(s size_t) *T {
+  return unsafe_malloc(s)
+}
+
+pub fn realloc<T any>(dst *T, s size_t) *T {
+  return unsafe_realloc(dst, s)
 }
 
 impl string {
@@ -52,20 +58,4 @@ impl string {
 
     return count
   }
-}
-
-pub fn typeof(val any) string {
-  return unsafe_typeof(val)
-}
-
-pub fn sizeof(val any) size_t {
-  return unsafe_sizeof(val)
-}
-
-pub fn malloc<T any>(s size_t) *T {
-  return unsafe_malloc(s)
-}
-
-pub fn realloc<T any>(dst *T, s size_t) *T {
-  return unsafe_realloc(dst, s)
 }
