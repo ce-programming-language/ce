@@ -245,7 +245,9 @@ module Make () : TYPES = struct
             Utils.mk_stmt
               (DefFN (mangled_name, [], sub_params, sub_ret_ty, sub_body))
           in
+          let previous_mod = !(env.current_module) in
           ignore (stmt_codegen env { fn_stmt with mod_name = def_mod; is_pub });
+          env.current_module := previous_mod;
           mangled_name
       | None -> raise (Error.unknown_var_fn name)
       end

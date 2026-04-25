@@ -141,7 +141,7 @@ impl Slice<T any> {
   pub fn write(&self, p Slice<T>) !int {
     let plen = p.len()
     for i = 0; i < plen; i = i + 1 {
-      self._append(p.get(i))
+      self.append(p.get(i))
     }
 
     return p.len()
