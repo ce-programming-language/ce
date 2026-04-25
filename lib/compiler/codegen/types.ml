@@ -6,17 +6,17 @@ open State
 open Codegen
 
 module Make () : TYPES = struct
-  let rec llvm_type_of env = function
+  let rec llvm_type_of env stmt_codegen = function
     | TInt (bits, _) -> integer_type ce_ctx bits
     | TFloat 32 -> float_type ce_ctx
     | TFloat 64 | TFloat _ -> double_type ce_ctx
     | TVoid -> void_type ce_ctx
     | TString -> pointer_type ce_ctx
     | TPointer _ -> pointer_type ce_ctx
-    | TArray (n, ty) -> array_type (llvm_type_of env ty) n
+    | TArray (n, ty) -> array_type (llvm_type_of env stmt_codegen ty) n
     | TNamed name -> (
         match Hashtbl.find_opt env.type_aliases name with
-        | Some actual_ty -> llvm_type_of env actual_ty
+        | Some actual_ty -> llvm_type_of env stmt_codegen actual_ty
         | None -> (
             match Hashtbl.find_opt env.struct_registry name with
             | Some (llty, _, _) -> llty
@@ -34,7 +34,7 @@ module Make () : TYPES = struct
     | TUnknown -> raise (Error.unknown_type "<unknown>")
     | TGenericParam name -> raise (Error.generic_requires_type name)
     | TResult ty ->
-        let inner = llvm_type_of env ty in
+        let inner = llvm_type_of env stmt_codegen ty in
         let ok_ty =
           if inner = void_type ce_ctx then i1_type ce_ctx else inner
         in
@@ -78,7 +78,9 @@ module Make () : TYPES = struct
               (struct_llty, [], def_mod);
             let field_types =
               Array.of_list
-                (List.map (fun f -> llvm_type_of env f.ty) specialized_fields)
+                (List.map
+                   (fun f -> llvm_type_of env stmt_codegen f.ty)
+                   specialized_fields)
             in
             struct_set_body struct_llty field_types false;
             let field_map =
@@ -134,11 +136,14 @@ module Make () : TYPES = struct
                       let param_types =
                         Array.of_list
                           (List.map
-                             (fun (p : param) -> llvm_type_of env p.ty)
+                             (fun (p : param) ->
+                               llvm_type_of env stmt_codegen p.ty)
                              all_sub_params)
                       in
                       let ft =
-                        function_type (llvm_type_of env sub_ret_ty) param_types
+                        function_type
+                          (llvm_type_of env stmt_codegen sub_ret_ty)
+                          param_types
                       in
                       Hashtbl.replace env.function_types mangled_method
                         ( ft,
@@ -173,13 +178,8 @@ module Make () : TYPES = struct
                 let impl_stmt =
                   Utils.mk_stmt (Impl (mangled_name, [], specialized_methods))
                 in
-                Queue.push
-                  { impl_stmt with mod_name = def_impl_mod }
-                  env.pending_instantiations
-            | None -> ());
-
-            (match !(env.process_pending_cb) with
-            | Some cb -> cb ()
+                ignore
+                  (stmt_codegen env { impl_stmt with mod_name = def_impl_mod })
             | None -> ());
 
             (match saved_bb with
@@ -191,11 +191,13 @@ module Make () : TYPES = struct
             in
             llty)
     | TTuple ts ->
-        struct_type ce_ctx (Array.of_list (List.map (llvm_type_of env) ts))
+        struct_type ce_ctx
+          (Array.of_list (List.map (llvm_type_of env stmt_codegen) ts))
     | TFn _ -> struct_type ce_ctx [| pointer_type ce_ctx; pointer_type ce_ctx |]
-    | TVariadic ty -> llvm_type_of env (TGenericInst ("slices.Slice", [ ty ]))
+    | TVariadic ty ->
+        llvm_type_of env stmt_codegen (TGenericInst ("slices.Slice", [ ty ]))
 
-  and instantiate_generic_fn env name targs =
+  and instantiate_generic_fn env stmt_codegen name targs =
     let mangled_name =
       name ^ "_" ^ String.concat "_" (List.map show_types targs)
     in
@@ -220,9 +222,13 @@ module Make () : TYPES = struct
           let sub_body = List.map (substitute_stmt type_map) body in
           let param_types =
             Array.of_list
-              (List.map (fun (p : param) -> llvm_type_of env p.ty) sub_params)
+              (List.map
+                 (fun (p : param) -> llvm_type_of env stmt_codegen p.ty)
+                 sub_params)
           in
-          let ft = function_type (llvm_type_of env sub_ret_ty) param_types in
+          let ft =
+            function_type (llvm_type_of env stmt_codegen sub_ret_ty) param_types
+          in
           Hashtbl.replace env.function_types mangled_name
             (ft, List.map (fun (p : param) -> p.ty) sub_params, sub_ret_ty);
           let _ =
@@ -237,9 +243,7 @@ module Make () : TYPES = struct
             Utils.mk_stmt
               (DefFN (mangled_name, [], sub_params, sub_ret_ty, sub_body))
           in
-          Queue.push
-            { fn_stmt with mod_name = def_mod; is_pub }
-            env.pending_instantiations;
+          ignore (stmt_codegen env { fn_stmt with mod_name = def_mod; is_pub });
           mangled_name
       | None -> raise (Error.unknown_var_fn name)
       end

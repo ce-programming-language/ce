@@ -3,8 +3,15 @@ open Llvm
 open Ce_parser.Ast
 
 module type TYPES = sig
-  val llvm_type_of : compiler_env -> types -> lltype
-  val instantiate_generic_fn : compiler_env -> string -> types list -> string
+  val llvm_type_of :
+    compiler_env -> (compiler_env -> stmt -> llvalue) -> types -> lltype
+
+  val instantiate_generic_fn :
+    compiler_env ->
+    (compiler_env -> stmt -> llvalue) ->
+    string ->
+    types list ->
+    string
 end
 
 module type EXPR = sig

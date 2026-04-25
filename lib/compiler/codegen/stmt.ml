@@ -58,7 +58,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
               else (None, ty)
         in
 
-        let ll_ty = Types.llvm_type_of env inferred_ty in
+        let ll_ty = Types.llvm_type_of env codegen inferred_ty in
         let init_val =
           match raw_val_opt with
           | Some raw_val ->
@@ -110,13 +110,17 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
 
           (env.current_fn_is_res :=
              match ret_ty with TResult _ -> true | _ -> false);
-          env.current_fn_ret_ty := Types.llvm_type_of env ret_ty;
+          env.current_fn_ret_ty := Types.llvm_type_of env codegen ret_ty;
 
           let param_types =
             Array.of_list
-              (List.map (fun (p : param) -> Types.llvm_type_of env p.ty) params)
+              (List.map
+                 (fun (p : param) -> Types.llvm_type_of env codegen p.ty)
+                 params)
           in
-          let ft = function_type (Types.llvm_type_of env ret_ty) param_types in
+          let ft =
+            function_type (Types.llvm_type_of env codegen ret_ty) param_types
+          in
           Hashtbl.add env.function_types actual_name
             (ft, List.map (fun (p : param) -> p.ty) params, ret_ty);
 
@@ -124,6 +128,9 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           if not s.is_pub then set_linkage Linkage.Internal f;
 
           let bb = append_block ce_ctx "entry" f in
+          let old_pos =
+            try Some (insertion_block !ce_builder) with _ -> None
+          in
           position_at_end bb !ce_builder;
 
           let old_named_values = Hashtbl.copy env.named_values in
@@ -135,7 +142,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                 | TVariadic t -> TGenericInst ("slices.Slice", [ t ])
                 | t -> t
               in
-              let llvm_p_ty = Types.llvm_type_of env p_ty in
+              let llvm_p_ty = Types.llvm_type_of env codegen p_ty in
               let alloca = build_alloca llvm_p_ty n !ce_builder in
               ignore (build_store a alloca !ce_builder);
               Hashtbl.add env.named_values n (alloca, p_ty, false))
@@ -226,6 +233,9 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
               ignore (build_ret (const_int (i32_type ce_ctx) 0) c_builder)
             end
           end;
+          (match old_pos with
+          | Some pos -> position_at_end pos !ce_builder
+          | None -> ());
           f
         end
     | DefType (name, underlying_ty) ->
@@ -242,7 +252,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
             let struct_llty = named_struct_type ce_ctx name in
             Hashtbl.add env.struct_registry name
               (struct_llty, [], !(env.current_module));
-            Queue.push s env.pending_instantiations;
+            ignore (codegen env s);
             const_null (void_type ce_ctx)
           end
           else begin
@@ -251,7 +261,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
             in
             let field_types =
               Array.of_list
-                (List.map (fun f -> Types.llvm_type_of env f.ty) fields)
+                (List.map (fun f -> Types.llvm_type_of env codegen f.ty) fields)
             in
             struct_set_body struct_llty field_types false;
             let field_map =
@@ -276,11 +286,11 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                 raise (Error.cant_assign_immutable_var s.loc name);
               let actual_v =
                 Utils.resolve_cross_module v builder_module
-                  (Types.llvm_type_of env ast_ty)
+                  (Types.llvm_type_of env codegen ast_ty)
                   name
               in
               ( actual_v,
-                Types.llvm_type_of env ast_ty,
+                Types.llvm_type_of env codegen ast_ty,
                 ast_ty,
                 is_unsigned ast_ty )
           | None ->
@@ -296,17 +306,17 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                   match ast_ty with TPointer t -> (true, t) | t -> (false, t)
                 in
                 let base_struct_llty =
-                  Types.llvm_type_of env base_struct_ast_ty
+                  Types.llvm_type_of env codegen base_struct_ast_ty
                 in
                 let actual_v =
                   Utils.resolve_cross_module v builder_module
-                    (Types.llvm_type_of env ast_ty)
+                    (Types.llvm_type_of env codegen ast_ty)
                     base_name
                 in
                 let base_ptr =
                   if is_ptr then
                     build_load
-                      (Types.llvm_type_of env ast_ty)
+                      (Types.llvm_type_of env codegen ast_ty)
                       actual_v "auto_deref_ptr" !ce_builder
                   else actual_v
                 in
@@ -392,7 +402,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
               in
               let actual_v =
                 Utils.resolve_cross_module v builder_module
-                  (Types.llvm_type_of env ty)
+                  (Types.llvm_type_of env codegen ty)
                   name
               in
               (actual_v, ty)
@@ -405,7 +415,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           match array_ty with
           | TArray (_, t) ->
               let zero = const_int (i32_type ce_ctx) 0 in
-              let llvm_array_ty = Types.llvm_type_of env array_ty in
+              let llvm_array_ty = Types.llvm_type_of env codegen array_ty in
               let ptr =
                 build_in_bounds_gep llvm_array_ty array_ptr_val
                   [| zero; idx_val |] "arrayidx" !ce_builder
@@ -414,13 +424,13 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           | TGenericInst ("slices.Slice", [ t ]) ->
               let slice_val =
                 build_load
-                  (Types.llvm_type_of env array_ty)
+                  (Types.llvm_type_of env codegen array_ty)
                   array_ptr_val "sliceload" !ce_builder
               in
               let data_ptr =
                 build_extractvalue slice_val 0 "slice_ptr" !ce_builder
               in
-              let elem_ll_ty = Types.llvm_type_of env t in
+              let elem_ll_ty = Types.llvm_type_of env codegen t in
               let ptr =
                 build_in_bounds_gep elem_ll_ty data_ptr [| idx_val |] "sliceidx"
                   !ce_builder
@@ -453,10 +463,10 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         let raw_val = Expr.codegen env codegen val_expr in
         let src_ty = infer_ast_type env val_expr in
         let is_src_u = is_unsigned src_ty in
-        let expected_ll_ty = Types.llvm_type_of env expected_ast_ty in
+        let expected_ll_ty = Types.llvm_type_of env codegen expected_ast_ty in
         let val_to_store =
           Expr.coerce_value env s.loc src_ty expected_ast_ty
-            (Types.llvm_type_of env expected_ast_ty)
+            (Types.llvm_type_of env codegen expected_ast_ty)
             raw_val
             (is_unsigned expected_ast_ty)
             is_src_u
@@ -577,18 +587,18 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
               if is_array then begin
                 let arr_tmp =
                   build_alloca
-                    (Types.llvm_type_of env iter_ast_ty)
+                    (Types.llvm_type_of env codegen iter_ast_ty)
                     "arr_tmp" !ce_builder
                 in
                 ignore (build_store iter_val arr_tmp !ce_builder);
                 let zero = const_int (i32_type ce_ctx) 0 in
                 let gep =
                   build_in_bounds_gep
-                    (Types.llvm_type_of env iter_ast_ty)
+                    (Types.llvm_type_of env codegen iter_ast_ty)
                     arr_tmp [| zero; current_idx |] "arr_gep" !ce_builder
                 in
                 build_load
-                  (element_type (Types.llvm_type_of env iter_ast_ty))
+                  (element_type (Types.llvm_type_of env codegen iter_ast_ty))
                   gep "arr_elem" !ce_builder
               end
               else begin
@@ -703,11 +713,13 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
               let param_types =
                 Array.of_list
                   (List.map
-                     (fun (p : param) -> Types.llvm_type_of env p.ty)
+                     (fun (p : param) -> Types.llvm_type_of env codegen p.ty)
                      all_params)
               in
               let ft =
-                function_type (Types.llvm_type_of env ret_ty) param_types
+                function_type
+                  (Types.llvm_type_of env codegen ret_ty)
+                  param_types
               in
               Hashtbl.replace env.function_types mangled_name
                 (ft, List.map (fun (p : param) -> p.ty) all_params, ret_ty);
@@ -726,9 +738,9 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                 Utils.mk_stmt
                   (DefFN (mangled_name, m_tparams, all_params, ret_ty, body))
               in
-              Queue.push
-                { fn_stmt with mod_name = !(env.current_module); is_pub }
-                env.pending_instantiations)
+              ignore
+                (codegen env
+                   { fn_stmt with mod_name = !(env.current_module); is_pub }))
             methods;
           const_null (void_type ce_ctx)
         end
@@ -747,9 +759,13 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
 
         let param_types =
           Array.of_list
-            (List.map (fun (p : param) -> Types.llvm_type_of env p.ty) params)
+            (List.map
+               (fun (p : param) -> Types.llvm_type_of env codegen p.ty)
+               params)
         in
-        let ft = function_type (Types.llvm_type_of env ret_ty) param_types in
+        let ft =
+          function_type (Types.llvm_type_of env codegen ret_ty) param_types
+        in
         Hashtbl.add env.function_types name
           (ft, List.map (fun (p : param) -> p.ty) params, ret_ty);
 
@@ -762,7 +778,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
     | ExternLet (alias_opt, name, ty) ->
         let c_name = match alias_opt with Some a -> a | None -> name in
         if c_name <> name then Hashtbl.add env.extern_aliases name c_name;
-        let ll_ty = Types.llvm_type_of env ty in
+        let ll_ty = Types.llvm_type_of env codegen ty in
         let global_var =
           match Llvm.lookup_global c_name !ce_module with
           | Some g -> g

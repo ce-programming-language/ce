@@ -15,7 +15,7 @@ and resolve_property_ptr env llvm_type_of current_ptr current_llty
     | prop :: rest -> (
         let is_ptr = match ast_ty with TPointer _ -> true | _ -> false in
         let base_ast_ty = match ast_ty with TPointer t -> t | t -> t in
-        let actual_ty = llvm_type_of env base_ast_ty in
+        let actual_ty = llvm_type_of base_ast_ty in
         let actual_ptr =
           if is_ptr then
             build_load (pointer_type ce_ctx) ptr "deref_ptr" !ce_builder

@@ -41,46 +41,13 @@ let compile ?(opt = "0") (stmts : stmt list) =
       (m, b)
   in
 
-  let rec process_pending () =
-    if not (Queue.is_empty env.pending_instantiations) then begin
-      let stmt = Queue.pop env.pending_instantiations in
-      let old_m, old_b = (!ce_module, !ce_builder) in
-      let old_mod_name = !(env.current_module) in
-      let saved_bb =
-        try Some (insertion_block old_b) with Not_found -> None
-      in
-
-      let m, b = get_module stmt.mod_name in
-      ce_module := m;
-      ce_builder := b;
-      ignore (Stmt.codegen env stmt);
-
-      ce_module := old_m;
-      ce_builder := old_b;
-      env.current_module := old_mod_name;
-      (match saved_bb with Some bb -> position_at_end bb old_b | None -> ());
-      process_pending ()
-    end
-  in
-  env.process_pending_cb := Some process_pending;
-
-  let is_decl s =
-    match s.node with
-    | DefStruct _ | DefType _ | DefInterface _ -> true
-    | _ -> false
-  in
-
   List.iter
     (fun s ->
-      if is_decl s then begin
-        let m, b = get_module s.mod_name in
-        ce_module := m;
-        ce_builder := b;
-        ignore (Stmt.codegen env s)
-      end)
+      let m, b = get_module s.mod_name in
+      ce_module := m;
+      ce_builder := b;
+      ignore (Stmt.codegen env s))
     stmts;
-
-  process_pending ();
 
   let main_m, _ = get_module "main" in
   let global_init_ft = function_type (void_type ce_ctx) [||] in
@@ -92,30 +59,26 @@ let compile ?(opt = "0") (stmts : stmt list) =
 
   List.iter
     (fun s ->
-      if not (is_decl s) then begin
-        let m, b = get_module s.mod_name in
-        let is_exec =
-          match s.node with
-          | DefFN _ | Impl _ | DefStruct _ | DefType _ | DefInterface _
-          | ExternFN _ | ExternLet _ ->
-              false
-          | _ -> true
-        in
-        if is_exec then begin
-          ce_module := main_m;
-          ce_builder := global_init_b
-        end
-        else begin
-          ce_module := m;
-          ce_builder := b
-        end;
-        ignore (Stmt.codegen env s)
-      end)
+      let m, b = get_module s.mod_name in
+      let is_exec =
+        match s.node with
+        | DefFN _ | Impl _ | DefStruct _ | DefType _ | DefInterface _
+        | ExternFN _ | ExternLet _ ->
+            false
+        | _ -> true
+      in
+      if is_exec then begin
+        ce_module := main_m;
+        ce_builder := global_init_b
+      end
+      else begin
+        ce_module := m;
+        ce_builder := b
+      end;
+      ignore (Stmt.codegen env s))
     stmts;
 
   ignore (build_ret_void global_init_b);
-
-  process_pending ();
 
   if opt == "lto" then begin
     let lto_main = create_module ce_ctx "main" in
