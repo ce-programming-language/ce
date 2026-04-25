@@ -9,11 +9,11 @@ let rec infer_ast_type (env : compiler_env) (expr : expr) =
   | None ->
       let calculated_ty =
         match expr.node with
-        | Int _ -> TInt (I32, Signed)
-        | Float _ -> TFloat F64
-        | Bool _ -> TBool
+        | Int _ -> TInt (32, Signed)
+        | Float _ -> TFloat 64
+        | Bool _ -> TInt (1, Unsigned)
+        | Char _ -> TInt (8, Unsigned)
         | String _ -> TString
-        | Char _ -> TChar
         | Array (n, ty, _) -> TArray (n, ty)
         | Catch (_, _, ty, _) -> ty
         | CatchExpr (e, _) -> (
@@ -22,14 +22,14 @@ let rec infer_ast_type (env : compiler_env) (expr : expr) =
             if targs = [] then TNamed name else TGenericInst (name, targs)
         | Add (l, _) | Sub (l, _) | Mul (l, _) | Div (l, _) | Mod (l, _) ->
             infer_ast_type env l
-        | Eq _ | Lt _ | Lte _ | Gt _ | Gte _ | And _ | Or _ -> TBool
+        | Eq _ | Lt _ | Lte _ | Gt _ | Gte _ | And _ | Or _ -> TInt (1, Unsigned)
         | Neg e -> infer_ast_type env e
-        | Not _ -> TBool
+        | Not _ -> TInt (1, Unsigned)
         | Ref e -> TPointer (infer_ast_type env e)
         | Deref e -> (
             match infer_ast_type env e with
             | TPointer t -> t
-            | TString -> TChar
+            | TString -> TInt (8, Unsigned)
             | _ -> TUnknown)
         | Let name ->
             begin match Hashtbl.find_opt env.named_values name with

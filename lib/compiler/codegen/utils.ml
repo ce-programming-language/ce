@@ -100,26 +100,14 @@ and ast_base_type_name = function
   | TNamed n | TStruct n -> n
   | TGenericInst (n, arg_types) ->
       n ^ "_" ^ String.concat "_" (List.map show_types arg_types)
+  | TInt (1, _) -> "bool"
+  | TInt (8, Unsigned) -> "char"
+  | TInt (size, sign) ->
+      let prefix = match sign with Signed -> "i" | Unsigned -> "u" in
+      prefix ^ string_of_int size
+  | TFloat 32 -> "f32"
+  | TFloat 64 -> "float"
   | TString -> "string"
-  | TBool -> "bool"
-  | TChar -> "char"
-  | TInt (size, sign) -> (
-      match (size, sign) with
-      | I32, Signed -> "int"
-      | I32, Unsigned -> "uint"
-      | _ ->
-          let prefix = match sign with Signed -> "i" | Unsigned -> "u" in
-          let bits =
-            match size with
-            | I8 -> "8"
-            | I16 -> "16"
-            | I32 -> "32"
-            | I64 -> "64"
-            | I128 -> "128"
-          in
-          prefix ^ bits)
-  | TFloat F32 -> "f32"
-  | TFloat F64 -> "float"
   | TVoid -> "void"
   | TPointer t -> ast_base_type_name t
   | TArray (_, t) -> ast_base_type_name t

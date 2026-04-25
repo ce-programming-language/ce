@@ -426,7 +426,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         let expected_ast_ty =
           match ptr_ast_ty with
           | TPointer t -> t
-          | TString -> TChar
+          | TString -> TInt (8, Unsigned)
           | _ ->
               raise (Error.left_side_dereference_assignment_must_pointer s.loc)
         in
@@ -549,7 +549,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         (match idx_name_opt with
         | Some idx_name ->
             Hashtbl.add env.named_values idx_name
-              (idx_alloc, TInt (I32, Signed), false)
+              (idx_alloc, TInt (32, Signed), false)
         | None -> ());
 
         (match val_name_opt with
@@ -652,21 +652,21 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
               let mangled_name = name ^ "::" ^ method_name in
               let base_ty =
                 match name with
-                | "int" -> TInt (I32, Signed)
-                | "i8" -> TInt (I8, Signed)
-                | "i16" -> TInt (I16, Signed)
-                | "i64" -> TInt (I64, Signed)
-                | "i128" -> TInt (I128, Signed)
-                | "uint" -> TInt (I32, Unsigned)
-                | "u8" -> TInt (I8, Unsigned)
-                | "u16" -> TInt (I16, Unsigned)
-                | "u64" -> TInt (I64, Unsigned)
-                | "u128" -> TInt (I128, Unsigned)
-                | "f32" -> TFloat F32
-                | "float" -> TFloat F64
+                | "int" -> TInt (32, Signed)
+                | "i8" -> TInt (8, Signed)
+                | "i16" -> TInt (16, Signed)
+                | "i64" -> TInt (64, Signed)
+                | "i128" -> TInt (128, Signed)
+                | "uint" -> TInt (32, Unsigned)
+                | "u8" -> TInt (8, Unsigned)
+                | "u16" -> TInt (16, Unsigned)
+                | "u64" -> TInt (64, Unsigned)
+                | "u128" -> TInt (128, Unsigned)
+                | "f32" -> TFloat 32
+                | "float" -> TFloat 64
                 | "string" -> TString
-                | "bool" -> TBool
-                | "char" -> TChar
+                | "bool" -> TInt (1, Unsigned)
+                | "char" -> TInt (8, Unsigned)
                 | _ -> TNamed name
               in
 

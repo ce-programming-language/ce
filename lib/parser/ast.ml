@@ -13,21 +13,17 @@ type loc = {
 }
 [@@deriving show, eq]
 
-type int_size = I8 | I16 | I32 | I64 | I128 [@@deriving show, eq]
 type signedness = Signed | Unsigned [@@deriving show, eq]
-type float_size = F32 | F64 [@@deriving show, eq]
 
 type types =
-  | TBool
   | TVoid
   | TString
-  | TChar
   | TPointer of types
   | TNamed of string
   | TStruct of string
   | TResult of types
-  | TInt of int_size * signedness
-  | TFloat of float_size
+  | TInt of int * signedness
+  | TFloat of int
   | TUnknown
   | TGenericParam of string
   | TGenericInst of string * types list

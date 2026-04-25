@@ -192,26 +192,26 @@ def_let:
 type_scalar:
   | TYPE_VOID   { TVoid }
   | TYPE_STRING { TString }
-  | TYPE_CHAR   { TChar }
-  | TYPE_BOOL   { TBool }
+  | TYPE_CHAR   { TInt (8, Unsigned) }
+  | TYPE_BOOL   { TInt(1, Unsigned) }
   
-  | TYPE_INT    { TInt (I32, Signed) }
-  | TYPE_I8     { TInt (I8, Signed) }
-  | TYPE_I16    { TInt (I16, Signed) }
-  | TYPE_I32    { TInt (I32, Signed) }
-  | TYPE_I64    { TInt (I64, Signed) }
-  | TYPE_I128   { TInt (I128, Signed) }
+  | TYPE_INT    { TInt (32, Signed) }
+  | TYPE_I8     { TInt (8, Signed) }
+  | TYPE_I16    { TInt (16, Signed) }
+  | TYPE_I32    { TInt (32, Signed) }
+  | TYPE_I64    { TInt (64, Signed) }
+  | TYPE_I128   { TInt (128, Signed) }
   
-  | TYPE_UINT   { TInt (I32, Unsigned) }
-  | TYPE_U8     { TInt (I8, Unsigned) }
-  | TYPE_U16    { TInt (I16, Unsigned) }
-  | TYPE_U32    { TInt (I32, Unsigned) }
-  | TYPE_U64    { TInt (I64, Unsigned) }
-  | TYPE_U128   { TInt (I128, Unsigned) }
+  | TYPE_UINT   { TInt (32, Unsigned) }
+  | TYPE_U8     { TInt (8, Unsigned) }
+  | TYPE_U16    { TInt (16, Unsigned) }
+  | TYPE_U32    { TInt (32, Unsigned) }
+  | TYPE_U64    { TInt (64, Unsigned) }
+  | TYPE_U128   { TInt (128, Unsigned) }
   
-  | TYPE_FLOAT  { TFloat F64 }
-  | TYPE_F32    { TFloat F32 }
-  | TYPE_F64    { TFloat F64 }
+  | TYPE_FLOAT  { TFloat 64 }
+  | TYPE_F32    { TFloat 32 }
+  | TYPE_F64    { TFloat 64 }
   
   | id = path   { TNamed id }
 

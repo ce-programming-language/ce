@@ -1281,7 +1281,7 @@ module Make (Types : TYPES) : EXPR = struct
     let inner_ty =
       match ptr_ast_ty with
       | TPointer t -> t
-      | TString -> TChar
+      | TString -> TInt (8, Unsigned)
       | _ -> raise (Error.cant_dereference_nonpointer loc)
     in
     build_load (Types.llvm_type_of env inner_ty) ptr_val "dereftmp" !ce_builder

@@ -7,19 +7,11 @@ open Codegen
 
 module Make () : TYPES = struct
   let rec llvm_type_of env = function
-    | TInt (size, _) -> (
-        match size with
-        | I8 -> i8_type ce_ctx
-        | I16 -> i16_type ce_ctx
-        | I32 -> i32_type ce_ctx
-        | I64 -> i64_type ce_ctx
-        | I128 -> integer_type ce_ctx 128)
-    | TFloat F32 -> float_type ce_ctx
-    | TFloat F64 -> double_type ce_ctx
-    | TBool -> i1_type ce_ctx
+    | TInt (bits, _) -> integer_type ce_ctx bits
+    | TFloat 32 -> float_type ce_ctx
+    | TFloat 64 | TFloat _ -> double_type ce_ctx
     | TVoid -> void_type ce_ctx
     | TString -> pointer_type ce_ctx
-    | TChar -> i8_type ce_ctx
     | TPointer _ -> pointer_type ce_ctx
     | TArray (n, ty) -> array_type (llvm_type_of env ty) n
     | TNamed name -> (

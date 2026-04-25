@@ -23,24 +23,16 @@ let register context the_module builder registry =
     let str_unk = build_global_stringptr "unknown" "s_unk" builder in
 
     let rec type_to_string = function
-      | TInt (I32, Signed) -> "int"
-      | TInt (I32, Unsigned) -> "uint"
+      | TInt (32, Signed) -> "int"
+      | TInt (32, Unsigned) -> "uint"
+      | TInt (1, Unsigned) -> "bool"
+      | TInt (8, Unsigned) -> "u8"
       | TInt (size, sign) ->
           let prefix = match sign with Signed -> "i" | Unsigned -> "u" in
-          let bits =
-            match size with
-            | I8 -> "8"
-            | I16 -> "16"
-            | I32 -> "32"
-            | I64 -> "64"
-            | I128 -> "128"
-          in
-          prefix ^ bits
-      | TFloat F64 -> "float"
-      | TFloat F32 -> "f32"
-      | TBool -> "bool"
+          prefix ^ string_of_int size
+      | TFloat 32 -> "f32"
+      | TFloat 64 -> "float"
       | TString -> "string"
-      | TChar -> "char"
       | TTuple ts -> "(" ^ String.concat ", " (List.map type_to_string ts) ^ ")"
       | TNamed n | TStruct n -> n
       | TArray (n, t) -> "[" ^ string_of_int n ^ "]" ^ type_to_string t
