@@ -11,7 +11,8 @@ pub struct File {
 
 impl File {
   pub fn new(fd int) *File {
-    let f = malloc<File>(1)
+    let dummy File
+    let f *File = malloc(sizeof(dummy))
     f.fd = fd
     return f
   }

@@ -29,7 +29,7 @@ pub fn sizeof(val any) size_t {
   return unsafe_sizeof(&val)
 }
 
-pub fn malloc<T any>(s size_t) *T {
+pub fn malloc(s size_t) *void {
   return unsafe_malloc(s)
 }
 

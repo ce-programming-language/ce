@@ -2,7 +2,8 @@ import slices
 
 pub fn from_chars(chars slices.Slice<char>) string {
   let len uint = chars.len()
-  let new_ptr *char = malloc<char>(len + 1)
+  let sz size_t = len.as<size_t>() + 1
+  let new_ptr *char = malloc(sz)
   
   for i = 0; i < len; i = i + 1 {
       let target *char = new_ptr + i
@@ -133,7 +134,8 @@ impl string {
     let c uint = count 
     let len uint = self.len()
     let total_len uint = len * c
-    let new_ptr *char = malloc<char>(total_len + 1)
+    let sz size_t = len.as<size_t>() + 1
+    let new_ptr *char = malloc(sz)
 
     for i = 0; i < c; i = i + 1 {
       for j = 0; j < len; j = j + 1 {
@@ -161,7 +163,8 @@ impl string {
     }
 
     let len uint = end - start
-    let new_ptr *char = malloc<char>(len + 1)
+    let sz size_t = len.as<size_t>() + 1
+    let new_ptr *char = malloc(sz)
 
     for i = 0; i < len; i = i + 1 {
       let target *char = new_ptr + i

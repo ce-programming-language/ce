@@ -8,7 +8,8 @@ pub struct URL {
 
 pub fn parse(raw string) !*URL {
   let len uint = raw.len()
-  let url = malloc<URL>(1)
+  let dummy URL
+  let url *URL = malloc(sizeof(dummy))
   let mut scheme_end uint = 0
   let mut has_scheme bool = false
   

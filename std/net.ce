@@ -37,7 +37,8 @@ struct Connection {
 
 impl Listener {
   fn accept(&self) !*Connection {
-    let conn = malloc<Connection>(1)
+    let dummy Connection
+    let conn *Connection = malloc(sizeof(dummy))
     let client_fd = c_accept(self.server_fd, &self.addr, &self.client_addr_len)
     if client_fd < 0 {
       raise ("Error: Failed to accept client")
@@ -89,7 +90,8 @@ impl Connection {
 
 fn listen(network string, address string) !*Listener {
   let u = url.parse(address)
-  let l = malloc<Listener>(1)
+  let dummy Listener
+  let l *Listener = malloc(sizeof(dummy))
   l.network = network
   l.address = address
 

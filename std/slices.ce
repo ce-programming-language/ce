@@ -19,10 +19,6 @@ impl SliceIter<T any> {
     let target *T = self.slice.ptr() + (self.current * item_size)
     return *target
   }
-
-  pub fn entry(self) (int, T) {
-    return (self.index(), self.value())
-  }
 }
 
 pub struct Slice<T any> {
@@ -33,7 +29,9 @@ pub struct Slice<T any> {
 
 impl Slice<T any> {
   pub fn new(cap int) Slice<T> {
-    let s Slice<T> = Slice<T>{_ptr = malloc<T>(cap); _len = cap; cap = cap}
+    let dummy T
+    let bytes size_t = cap.as<size_t>() * sizeof(dummy)
+    let s Slice<T> = Slice<T>{_ptr = malloc(bytes); _len = cap; cap = cap}
     return s
   }
 
@@ -45,11 +43,12 @@ impl Slice<T any> {
     return self._ptr
   }
 
-  pub fn iter(self) SliceIter<T> {
-    return SliceIter<T>{
-      slice = self;
-      current = -1
-    }
+  pub fn iter(self) *SliceIter<T> {
+    let mock = SliceIter<T>{}
+    let it = malloc(sizeof(mock))
+    it.slice = self
+    it.current = -1
+    return it
   }
 
   pub fn set(&self, index int, v T) void {

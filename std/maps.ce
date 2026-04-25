@@ -10,7 +10,8 @@ struct Map<T any, U any>{
 }
 
 fn new<T any, U any>() *Map<T, U> {
-  let m = malloc<Map<T, U>>(1)
+  let dummy Map<T, U>
+  let m *Map<T, U> = malloc(sizeof(dummy))
   m.entries = slices.new<Entry<T, U>>(0)
   return m
 }
