@@ -21,10 +21,6 @@ pub fn assert(condition bool, message string) !void {
   raise message
 }
 
-pub fn typeof(x any) string {
-  return "unknown"
-}
-
 pub fn typeof(val any) string {
   return unsafe_typeof(val)
 }
