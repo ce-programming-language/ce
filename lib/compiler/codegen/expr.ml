@@ -154,13 +154,32 @@ module Make (Types : TYPES) : EXPR = struct
           vtable_alloc_raw
       | _ ->
           let type_tag =
-            match classify_type actual_raw_ty with
-            | TypeKind.Integer ->
-                let bw = integer_bitwidth actual_raw_ty in
-                if bw = 1 then 3 else if bw = 8 then 5 else 1
-            | TypeKind.Double -> 2
-            | TypeKind.Pointer -> 4
-            | _ -> 0
+            let rec get_tag = function
+              | TInt (1, Unsigned) -> 3
+              | TInt (8, Unsigned) -> 5
+              | TInt _ -> 1
+              | TFloat _ -> 2
+              | TString -> 4
+              | TGenericInst ("slices.Slice", [ t ]) -> (
+                  match get_tag t with
+                  | 1 -> 6
+                  | 2 -> 7
+                  | 3 -> 8
+                  | 4 -> 9
+                  | 5 -> 10
+                  | _ -> 0)
+              | _ -> 0
+            in
+            let ast_tag = get_tag actual_ast_ty in
+            if ast_tag <> 0 then ast_tag
+            else
+              match classify_type actual_raw_ty with
+              | TypeKind.Integer ->
+                  let bw = integer_bitwidth actual_raw_ty in
+                  if bw = 1 then 3 else if bw = 8 then 5 else 1
+              | TypeKind.Double -> 2
+              | TypeKind.Pointer -> 4
+              | _ -> 0
           in
           build_inttoptr
             (const_int (i64_type ce_ctx) type_tag)
