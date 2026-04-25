@@ -3,7 +3,7 @@ import io
 import strings
 import os
 
-extern "unsafe_format" fn unsafe_format(val any) string
+extern "unsafe_format" fn unsafe_format(val *any) string
 
 pub fn fprint(writer io.writer, args ...any) void {
   let iter = args.iter()

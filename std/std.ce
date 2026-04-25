@@ -2,10 +2,10 @@ pub trait any{}
 
 type size_t u64
 
-extern "unsafe_typeof" fn unsafe_typeof(val any) string
-extern "unsafe_sizeof" fn unsafe_sizeof(val any) size_t
-extern "unsafe_malloc" fn unsafe_malloc(size size_t) *any
-extern "unsafe_realloc" fn unsafe_realloc(ptr *any, size size_t) *any
+extern "unsafe_typeof" fn unsafe_typeof(val *any) string
+extern "unsafe_sizeof" fn unsafe_sizeof(val *any) size_t
+extern "unsafe_malloc" fn unsafe_malloc(size size_t) *void
+extern "unsafe_realloc" fn unsafe_realloc(ptr *void, size size_t) *void
 
 pub trait Iterable {
   fn next() bool;
@@ -22,11 +22,11 @@ pub fn assert(condition bool, message string) !void {
 }
 
 pub fn typeof(val any) string {
-  return unsafe_typeof(val)
+  return unsafe_typeof(&val)
 }
 
 pub fn sizeof(val any) size_t {
-  return unsafe_sizeof(val)
+  return unsafe_sizeof(&val)
 }
 
 pub fn malloc<T any>(s size_t) *T {
