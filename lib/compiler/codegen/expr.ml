@@ -522,9 +522,15 @@ module Make (Types : TYPES) : EXPR = struct
         arg_asts targs
         (codegen env compile_stmt_cb)
         (Types.llvm_type_of env) (Infer.infer_ast_type env)
-    else if Option.is_some direct_callee then
+    else if Option.is_some direct_callee && not is_method then
       let callee = Option.get direct_callee in
-      let ft, param_ast_tys, _ = Hashtbl.find env.function_types name in
+      let ft, param_ast_tys, _ =
+        try Hashtbl.find env.function_types name
+        with Not_found ->
+          if is_method then
+            raise (Error.unknown_method loc "<method>" "<struct>")
+          else raise (Error.unknown_var_fn ~loc name)
+      in
       let arg_vals =
         process_args env compile_stmt_cb loc (param_types ft) param_ast_tys args
           0 0

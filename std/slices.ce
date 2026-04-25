@@ -47,12 +47,11 @@ impl Slice<T any> {
     return self._ptr
   }
 
-  pub fn get(self, index int) !T {
-    assert(self._len > index, "unbound index")
-
-    let start *T = self._ptr
-    let search *T = self._ptr + (index * sizeof(*start))
-    return *search
+  pub fn iter(self) SliceIter<T> {
+    return SliceIter<T>{
+      slice = self;
+      current = -1
+    }
   }
 
   pub fn set(&self, index int, v T) void {
@@ -62,6 +61,35 @@ impl Slice<T any> {
     let item_size int = sizeof(v)
     let target *T = self._ptr + (index * item_size)
     *target = v
+  }
+
+
+  pub fn get(self, index int) !T {
+    assert(self._len > index, "unbound index")
+
+    let start *T = self._ptr
+    let search *T = self._ptr + (index * sizeof(*start))
+    return *search
+  }
+
+  pub fn delete(&self, start int, end int) Slice<T> {
+    if start < 0 || end > self._len || start >= end {
+      return self
+    }
+
+    let x T
+    let item_size int = sizeof(x)
+    let num_to_delete = end - start
+    let num_to_move int = self._len - end
+
+    for i = 0; i < num_to_move; i = i + 1 {
+      let target_ptr *T = self._ptr + ((start + i) * item_size)
+      let source_ptr *T = self._ptr + ((end + i) * item_size)
+      *target_ptr = *source_ptr
+    }
+    self._len = self._len - num_to_delete
+
+    return self
   }
 
   fn _append(&self, item T) void {
@@ -117,33 +145,6 @@ impl Slice<T any> {
     }
 
     return false
-  }
-
-  pub fn delete(&self, start int, end int) Slice<T> {
-    if start < 0 || end > self._len || start >= end {
-      return self
-    }
-
-    let x T
-    let item_size int = sizeof(x)
-    let num_to_delete = end - start
-    let num_to_move int = self._len - end
-
-    for i = 0; i < num_to_move; i = i + 1 {
-      let target_ptr *T = self._ptr + ((start + i) * item_size)
-      let source_ptr *T = self._ptr + ((end + i) * item_size)
-      *target_ptr = *source_ptr
-    }
-    self._len = self._len - num_to_delete
-
-    return self
-  }
-
-  pub fn iter(self) SliceIter<T> {
-    return SliceIter<T>{
-      slice = self;
-      current = -1
-    }
   }
 
   pub fn write(&self, p Slice<T>) !int {
