@@ -401,25 +401,30 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
 
         let idx_val = Expr.codegen env codegen index_expr in
         let val_to_store = Expr.codegen env codegen val_expr in
+        let element_ptr, expected_ll_ty, expected_ast_ty = 
+          match array_ty with
+          | TArray (_, t) ->
+              let zero = const_int (i32_type ce_ctx) 0 in
+              let llvm_array_ty = Types.llvm_type_of env array_ty in
+              let ptr = build_in_bounds_gep llvm_array_ty array_ptr_val [| zero; idx_val |] "arrayidx" !ce_builder in
+              (ptr, element_type llvm_array_ty, t)
+ 
+          | TGenericInst ("slices.Slice", [t]) ->
+              let slice_val = build_load (Types.llvm_type_of env array_ty) array_ptr_val "sliceload" !ce_builder in
+              let data_ptr = build_extractvalue slice_val 0 "slice_ptr" !ce_builder in
+              let elem_ll_ty = Types.llvm_type_of env t in
+              let ptr = build_in_bounds_gep elem_ll_ty data_ptr [| idx_val |] "sliceidx" !ce_builder in
+              (ptr, elem_ll_ty, t)
+              
+          | _ -> raise (Error.Error "Cannot assign to index of non-array and non-slice type")
+        in
 
-        let zero = const_int (i32_type ce_ctx) 0 in
-        let indices = [| zero; idx_val |] in
-        let element_ptr =
-          build_in_bounds_gep
-            (Types.llvm_type_of env array_ty)
-            array_ptr_val indices "arrayidx" !ce_builder
-        in
-        let expected_ll_ty = element_type (Types.llvm_type_of env array_ty) in
-        let expected_ast_ty =
-          match array_ty with TArray (_, t) -> t | _ -> TUnknown
-        in
         let coerced_val =
           Expr.coerce_value env s.loc
             (infer_ast_type env val_expr)
             expected_ast_ty expected_ll_ty val_to_store false false
         in
-        Utils.Stmt.gen_assignment !ce_builder expected_ll_ty element_ptr
-          coerced_val
+        Utils.Stmt.gen_assignment !ce_builder expected_ll_ty element_ptr coerced_val
     | DerefAssign (ptr_expr, val_expr) ->
         let actual_ptr = Expr.codegen env codegen ptr_expr in
         let ptr_ast_ty = infer_ast_type env ptr_expr in
