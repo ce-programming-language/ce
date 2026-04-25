@@ -271,7 +271,13 @@ module Make (Types : TYPES) : EXPR = struct
           if Option.is_none field_opt then
             raise (Error.unknown_prop loc prop clean_name);
           let _, idx, _, next_ast_ty, is_pub = Option.get field_opt in
-          if (not is_pub) && !(env.current_module) <> def_mod then
+          let is_same_mod =
+            !(env.current_module) = def_mod
+            || String.starts_with
+                 ~prefix:(!(env.current_module) ^ ".")
+                 clean_name
+          in
+          if (not is_pub) && not is_same_mod then
             raise (Error.cant_access_private_on_struct ~loc prop clean_name);
           let next_val =
             build_extractvalue current_val idx "proptmp" !ce_builder
@@ -651,7 +657,13 @@ module Make (Types : TYPES) : EXPR = struct
       let mangled_name = actual_base_path ^ "::" ^ method_name in
       (match Hashtbl.find_opt env.method_registry mangled_name with
       | Some (is_pub, def_mod) ->
-          if (not is_pub) && !(env.current_module) <> def_mod then
+          let is_same_mod =
+            !(env.current_module) = def_mod
+            || String.starts_with
+                 ~prefix:(!(env.current_module) ^ ".")
+                 actual_base_path
+          in
+          if (not is_pub) && not is_same_mod then
             raise
               (Error.cant_access_private_on_struct ~loc method_name
                  actual_base_path)
@@ -763,7 +775,13 @@ module Make (Types : TYPES) : EXPR = struct
         let mangled_name = clean_name ^ "::" ^ method_name in
         (match Hashtbl.find_opt env.method_registry mangled_name with
         | Some (is_pub, def_mod) ->
-            if (not is_pub) && !(env.current_module) <> def_mod then
+            let is_same_mod =
+              !(env.current_module) = def_mod
+              || String.starts_with
+                   ~prefix:(!(env.current_module) ^ ".")
+                   clean_name
+            in
+            if (not is_pub) && not is_same_mod then
               raise
                 (Error.cant_call_private_on_struct ~loc method_name clean_name)
         | None -> ());
@@ -882,7 +900,13 @@ module Make (Types : TYPES) : EXPR = struct
           try List.find (fun (n, _, _, _, _) -> n = fname) field_map
           with Not_found -> raise (Error.unknown_prop loc fname mangled_name)
         in
-        if (not is_pub) && !(env.current_module) <> def_mod then
+        let is_same_mod =
+          !(env.current_module) = def_mod
+          || String.starts_with
+               ~prefix:(!(env.current_module) ^ ".")
+               mangled_name
+        in
+        if (not is_pub) && not is_same_mod then
           raise (Error.cant_access_private_on_struct ~loc fname mangled_name);
 
         let fptr = build_struct_gep llty alloc fidx "fieldptr" !ce_builder in

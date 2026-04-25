@@ -346,8 +346,13 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                             Option.get field_opt
                           in
 
-                          if (not is_pub) && !(env.current_module) <> def_mod
-                          then
+                          let is_same_mod =
+                            !(env.current_module) = def_mod
+                            || String.starts_with
+                                 ~prefix:(!(env.current_module) ^ ".")
+                                 clean_name
+                          in
+                          if (not is_pub) && not is_same_mod then
                             raise
                               (Error.cant_access_private_on_struct ~loc:s.loc
                                  prop clean_name);

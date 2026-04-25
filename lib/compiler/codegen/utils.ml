@@ -54,7 +54,13 @@ and resolve_property_ptr env llvm_type_of current_ptr current_llty
                    ("Unknown property '" ^ prop ^ "' on struct '" ^ clean_name
                   ^ "'"));
             let _, idx, _, next_ast_ty, is_pub = Option.get field_opt in
-            if (not is_pub) && !(env.current_module) <> def_mod then
+            let is_same_mod =
+              !(env.current_module) = def_mod
+              || String.starts_with
+                   ~prefix:(!(env.current_module) ^ ".")
+                   clean_name
+            in
+            if (not is_pub) && not is_same_mod then
               raise
                 (Error.Error
                    ("Cannot access private property '" ^ prop ^ "' on struct '"

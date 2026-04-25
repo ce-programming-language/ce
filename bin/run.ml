@@ -10,9 +10,13 @@ let execute optimization file =
       file |> Build.process_file visited
       |> Compiler.compile ~opt:optimization
       |> Build.export binary_name
-    with Failure msg ->
-      Printf.printf "Error: %s\n" msg;
-      exit 1
+    with
+    | Failure msg ->
+        Printf.printf "Error: %s\n" msg;
+        exit 1
+    | Ce_error.Error.Error msg ->
+        Printf.printf "%s\n" msg;
+        exit 1
   in
 
   let binary_name =
