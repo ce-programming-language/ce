@@ -13,10 +13,13 @@ let execute optimization file =
   let visited = Hashtbl.create 10 in
   let ast = Build.process_file visited file in
   let optimization = if optimization = "" then "0" else optimization in
-  try ast |> Compiler.compile ~opt:optimization |> dump
-  with Failure msg ->
-    Printf.printf "Error: %s\n" msg;
-    exit 1
+  try ast |> Compiler.compile ~opt:optimization |> dump with
+  | Failure msg ->
+      Printf.printf "Error: %s\n" msg;
+      exit 1
+  | Ce_error.Error.Error msg ->
+      Printf.printf "%s\n" msg;
+      exit 1
 
 let command =
   let doc = "Read ce-lang code file then show debug output" in

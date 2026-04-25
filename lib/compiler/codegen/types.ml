@@ -178,8 +178,10 @@ module Make () : TYPES = struct
                 let impl_stmt =
                   Utils.mk_stmt (Impl (mangled_name, [], specialized_methods))
                 in
+                let previous_mod = !(env.current_module) in
                 ignore
-                  (stmt_codegen env { impl_stmt with mod_name = def_impl_mod })
+                  (stmt_codegen env { impl_stmt with mod_name = def_impl_mod });
+                env.current_module := previous_mod
             | None -> ());
 
             (match saved_bb with

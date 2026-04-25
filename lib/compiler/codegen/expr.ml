@@ -529,15 +529,14 @@ module Make (Types : TYPES) : EXPR = struct
         (codegen env compile_stmt_cb)
         (Types.llvm_type_of env compile_stmt_cb)
         (Infer.infer_ast_type env)
-    else if Option.is_some direct_callee && not is_method then
+    else if
+      targs = []
+      && Hashtbl.mem env.function_types name
+      && Option.is_some direct_callee
+      && not is_method
+    then
       let callee = Option.get direct_callee in
-      let ft, param_ast_tys, _ =
-        try Hashtbl.find env.function_types name
-        with Not_found ->
-          if is_method then
-            raise (Error.unknown_method loc "<method>" "<struct>")
-          else raise (Error.unknown_var_fn ~loc name)
-      in
+      let ft, param_ast_tys, s = Hashtbl.find env.function_types name in
       let arg_vals =
         process_args env compile_stmt_cb loc (param_types ft) param_ast_tys args
           0 0
@@ -553,7 +552,11 @@ module Make (Types : TYPES) : EXPR = struct
         Utils.resolve_cross_module callee builder_module ft (value_name callee)
       in
       build_call ft actual_callee (Array.of_list arg_vals) call_name !ce_builder
-    else if Option.is_some generic_callee then
+    else if
+      targs <> []
+      && Hashtbl.mem env.function_types target_name
+      && Option.is_some generic_callee
+    then
       let callee = Option.get generic_callee in
       let ft, param_ast_tys, _ = Hashtbl.find env.function_types target_name in
       let arg_vals =
@@ -820,8 +823,10 @@ module Make (Types : TYPES) : EXPR = struct
                 let llvm_base_struct_ast_ty =
                   Types.llvm_type_of env compile_stmt_cb base_struct_ast_ty
                 in
-                resolve_property_ptr env ( Types.llvm_type_of env compile_stmt_cb) base_ptr llvm_base_struct_ast_ty
-                  base_struct_ast_ty (List.tl parts)
+                resolve_property_ptr env
+                  (Types.llvm_type_of env compile_stmt_cb)
+                  base_ptr llvm_base_struct_ast_ty base_struct_ast_ty
+                  (List.tl parts)
               else raise (Error.unknown_var_fn ~loc path)
         in
 
@@ -873,14 +878,15 @@ module Make (Types : TYPES) : EXPR = struct
     ignore (build_store (const_null llty) alloc !ce_builder);
     List.iter
       (fun (fname, fexpr) ->
-        let name, fidx, _, f_ast_ty, is_pub =
+        let field_name, fidx, _, f_ast_ty, is_pub =
           try List.find (fun (n, _, _, _, _) -> n = fname) field_map
           with Not_found -> raise (Error.unknown_prop loc fname mangled_name)
         in
         if (not is_pub) && !(env.current_module) <> def_mod then
-          raise (Error.cant_access_private_on_struct ~loc fname name);
+          raise (Error.cant_access_private_on_struct ~loc fname mangled_name);
 
         let fptr = build_struct_gep llty alloc fidx "fieldptr" !ce_builder in
+
         let expected_ty = (struct_element_types llty).(fidx) in
         let raw_val = codegen env compile_stmt_cb fexpr in
         let val_to_store =
@@ -1402,7 +1408,9 @@ module Make (Types : TYPES) : EXPR = struct
                     actual_v "auto_deref_ptr" !ce_builder
                 else actual_v
               in
-              resolve_property_ptr env ( Types.llvm_type_of env compile_stmt_cb) base_ptr
+              resolve_property_ptr env
+                (Types.llvm_type_of env compile_stmt_cb)
+                base_ptr
                 (Types.llvm_type_of env compile_stmt_cb base_struct_ast_ty)
                 base_struct_ast_ty (List.tl parts)
             else raise (Error.unknown_var_fn ~loc name))
@@ -1417,7 +1425,9 @@ module Make (Types : TYPES) : EXPR = struct
       | TString -> TInt (8, Unsigned)
       | _ -> raise (Error.cant_dereference_nonpointer loc)
     in
-    build_load (Types.llvm_type_of env compile_stmt_cb inner_ty) ptr_val "dereftmp" !ce_builder
+    build_load
+      (Types.llvm_type_of env compile_stmt_cb inner_ty)
+      ptr_val "dereftmp" !ce_builder
 
   and gen_binop env compile_stmt_cb op l r =
     let lv, rv =
