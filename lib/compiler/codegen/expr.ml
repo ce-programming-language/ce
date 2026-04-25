@@ -7,6 +7,11 @@ open Infer
 open Codegen
 
 module Make (Types : TYPES) : EXPR = struct
+  let is_sret_ty ty =
+    match classify_type ty with
+    | TypeKind.Struct | TypeKind.Array -> true
+    | _ -> false
+
   let is_result_type ty =
     match classify_type ty with
     | TypeKind.Struct ->
@@ -542,10 +547,24 @@ module Make (Types : TYPES) : EXPR = struct
       && not is_method
     then
       let callee = Option.get direct_callee in
-      let ft, param_ast_tys, s = Hashtbl.find env.function_types name in
+      let ft, param_ast_tys, ret_ast_ty =
+        Hashtbl.find env.function_types name
+      in
+      let is_sret =
+        Array.length (param_types ft) = List.length param_ast_tys + 1
+      in
+      let sret_alloca =
+        if is_sret then
+          Some
+            (build_alloca
+               (Types.llvm_type_of env compile_stmt_cb ret_ast_ty)
+               "sret_tmp" !ce_builder)
+        else None
+      in
+      let offset_ll = if is_sret then 1 else 0 in
       let arg_vals =
         process_args env compile_stmt_cb loc (param_types ft) param_ast_tys args
-          0 0
+          offset_ll 0
           (List.length param_ast_tys - 1)
       in
       let call_name =
@@ -557,17 +576,44 @@ module Make (Types : TYPES) : EXPR = struct
       let actual_callee =
         Utils.resolve_cross_module callee builder_module ft (value_name callee)
       in
-      build_call ft actual_callee (Array.of_list arg_vals) call_name !ce_builder
+      let all_args =
+        match sret_alloca with
+        | Some p -> Array.of_list (p :: arg_vals)
+        | None -> Array.of_list arg_vals
+      in
+      let call_res =
+        build_call ft actual_callee all_args call_name !ce_builder
+      in
+      match sret_alloca with
+      | Some p ->
+          build_load
+            (Types.llvm_type_of env compile_stmt_cb ret_ast_ty)
+            p "sret_load" !ce_builder
+      | None -> call_res
     else if
       targs <> []
       && Hashtbl.mem env.function_types target_name
       && Option.is_some generic_callee
     then
       let callee = Option.get generic_callee in
-      let ft, param_ast_tys, _ = Hashtbl.find env.function_types target_name in
+      let ft, param_ast_tys, ret_ast_ty =
+        Hashtbl.find env.function_types target_name
+      in
+      let is_sret =
+        Array.length (param_types ft) = List.length param_ast_tys + 1
+      in
+      let sret_alloca =
+        if is_sret then
+          Some
+            (build_alloca
+               (Types.llvm_type_of env compile_stmt_cb ret_ast_ty)
+               "sret_tmp" !ce_builder)
+        else None
+      in
+      let offset_ll = if is_sret then 1 else 0 in
       let arg_vals =
         process_args env compile_stmt_cb loc (param_types ft) param_ast_tys args
-          0 0
+          offset_ll 0
           (List.length param_ast_tys - 1)
       in
       let call_name =
@@ -579,33 +625,65 @@ module Make (Types : TYPES) : EXPR = struct
       let actual_callee =
         Utils.resolve_cross_module callee builder_module ft (value_name callee)
       in
-      build_call ft actual_callee (Array.of_list arg_vals) call_name !ce_builder
+      let all_args =
+        match sret_alloca with
+        | Some p -> Array.of_list (p :: arg_vals)
+        | None -> Array.of_list arg_vals
+      in
+      let call_res =
+        build_call ft actual_callee all_args call_name !ce_builder
+      in
+      match sret_alloca with
+      | Some p ->
+          build_load
+            (Types.llvm_type_of env compile_stmt_cb ret_ast_ty)
+            p "sret_load" !ce_builder
+      | None -> call_res
     else if is_fn_var then
       let fn_val = codegen env compile_stmt_cb (Utils.mk_expr @@ Let name) in
       match Infer.infer_ast_type env (Utils.mk_expr @@ Let name) with
-      | TFn (param_tys, ret_ty) ->
+      | TFn (param_tys, ret_ty) -> (
+          let ret_llty = Types.llvm_type_of env compile_stmt_cb ret_ty in
+          let is_sret = is_sret_ty ret_llty in
+          let base_expected_tys =
+            pointer_type ce_ctx
+            :: List.map (Types.llvm_type_of env compile_stmt_cb) param_tys
+          in
           let expected_tys =
-            Array.of_list
-              (pointer_type ce_ctx
-              :: List.map (Types.llvm_type_of env compile_stmt_cb) param_tys)
+            if is_sret then
+              Array.of_list (pointer_type ce_ctx :: base_expected_tys)
+            else Array.of_list base_expected_tys
           in
           let ft =
-            function_type
-              (Types.llvm_type_of env compile_stmt_cb ret_ty)
-              expected_tys
+            if is_sret then function_type (void_type ce_ctx) expected_tys
+            else function_type ret_llty expected_tys
           in
           let fn_ptr_raw =
             build_extractvalue fn_val 0 "fn_ptr_raw" !ce_builder
           in
           let env_ptr = build_extractvalue fn_val 1 "env_ptr" !ce_builder in
+          let offset_ll = if is_sret then 2 else 1 in
           let arg_vals =
-            process_args env compile_stmt_cb loc expected_tys param_tys args 1 0
+            process_args env compile_stmt_cb loc expected_tys param_tys args
+              offset_ll 0
               (List.length param_tys - 1)
           in
           let call_name = if ret_ty = TVoid then "" else "fnptr_calltmp" in
-          build_call ft fn_ptr_raw
-            (Array.of_list (env_ptr :: arg_vals))
-            call_name !ce_builder
+          let sret_alloca =
+            if is_sret then Some (build_alloca ret_llty "sret_tmp" !ce_builder)
+            else None
+          in
+          let all_args =
+            match sret_alloca with
+            | Some p -> Array.of_list (p :: env_ptr :: arg_vals)
+            | None -> Array.of_list (env_ptr :: arg_vals)
+          in
+          let call_res =
+            build_call ft fn_ptr_raw all_args call_name !ce_builder
+          in
+          match sret_alloca with
+          | Some p -> build_load ret_llty p "sret_load" !ce_builder
+          | None -> call_res)
       | _ -> raise (Error.unknown_var_fn ~loc "<unnamed>")
     else if Hashtbl.mem env.fn_templates name then
       raise (Error.generic_requires_type ~loc name)
@@ -748,28 +826,45 @@ module Make (Types : TYPES) : EXPR = struct
         let param_ast_tys =
           List.map (fun (p : param) -> p.ty) method_sig.params
         in
+        let ret_llty =
+          Types.llvm_type_of env compile_stmt_cb method_sig.ret_ty
+        in
+        let is_sret = is_sret_ty ret_llty in
+        let base_param_tys =
+          pointer_type ce_ctx
+          :: List.map (Types.llvm_type_of env compile_stmt_cb) param_ast_tys
+        in
         let param_types_arr =
-          Array.of_list
-            (pointer_type ce_ctx
-            :: List.map (Types.llvm_type_of env compile_stmt_cb) param_ast_tys)
+          if is_sret then Array.of_list (pointer_type ce_ctx :: base_param_tys)
+          else Array.of_list base_param_tys
         in
         let ft =
-          function_type
-            (Types.llvm_type_of env compile_stmt_cb method_sig.ret_ty)
-            param_types_arr
+          if is_sret then function_type (void_type ce_ctx) param_types_arr
+          else function_type ret_llty param_types_arr
         in
+        let offset_ll = if is_sret then 2 else 1 in
 
         let arg_vals =
           process_args env compile_stmt_cb loc param_types_arr param_ast_tys
-            args 1 0
+            args offset_ll 0
             (List.length param_ast_tys)
         in
-
-        let all_args = Array.of_list (data_ptr :: arg_vals) in
         let call_name =
           if method_sig.ret_ty = TVoid then "" else "iface_call"
         in
-        build_call ft func_ptr all_args call_name !ce_builder
+        let sret_alloca =
+          if is_sret then Some (build_alloca ret_llty "sret_tmp" !ce_builder)
+          else None
+        in
+        let all_args =
+          match sret_alloca with
+          | Some p -> Array.of_list (p :: data_ptr :: arg_vals)
+          | None -> Array.of_list (data_ptr :: arg_vals)
+        in
+        let call_res = build_call ft func_ptr all_args call_name !ce_builder in
+        match sret_alloca with
+        | Some p -> build_load ret_llty p "sret_load" !ce_builder
+        | None -> call_res
       end
       else begin
         let mangled_name = clean_name ^ "::" ^ method_name in
@@ -797,13 +892,17 @@ module Make (Types : TYPES) : EXPR = struct
           | Some c -> c
           | None -> raise (Error.unknown_method loc method_name clean_name)
         in
-        let ft, param_ast_tys, _ =
+        let ft, param_ast_tys, ret_ast_ty =
           try Hashtbl.find env.function_types target_name
           with Not_found ->
             raise (Error.unknown_method loc method_name clean_name)
         in
+        let is_sret =
+          Array.length (param_types ft) = List.length param_ast_tys + 1
+        in
         let expected_tys = param_types ft in
-        let expected_self_ty = expected_tys.(0) in
+        let offset_ll = if is_sret then 1 else 0 in
+        let expected_self_ty = expected_tys.(offset_ll) in
         let expected_self_ast_ty = List.hd param_ast_tys in
 
         let get_ptr_to_name path =
@@ -861,11 +960,10 @@ module Make (Types : TYPES) : EXPR = struct
               expected_self_ty self_val false false
         in
         let arg_vals =
-          process_args env compile_stmt_cb loc expected_tys param_ast_tys args 1
-            1
+          process_args env compile_stmt_cb loc expected_tys param_ast_tys args
+            (offset_ll + 1) 1
             (List.length param_ast_tys - 2)
         in
-        let all_args = Array.of_list (coerced_self :: arg_vals) in
         let call_name =
           if return_type ft = void_type ce_ctx then "" else "methodcalltmp"
         in
@@ -876,7 +974,28 @@ module Make (Types : TYPES) : EXPR = struct
           Utils.resolve_cross_module callee builder_module ft
             (value_name callee)
         in
-        build_call ft actual_callee all_args call_name !ce_builder
+        let sret_alloca =
+          if is_sret then
+            Some
+              (build_alloca
+                 (Types.llvm_type_of env compile_stmt_cb ret_ast_ty)
+                 "sret_tmp" !ce_builder)
+          else None
+        in
+        let all_args =
+          match sret_alloca with
+          | Some p -> Array.of_list (p :: coerced_self :: arg_vals)
+          | None -> Array.of_list (coerced_self :: arg_vals)
+        in
+        let call_res =
+          build_call ft actual_callee all_args call_name !ce_builder
+        in
+        match sret_alloca with
+        | Some p ->
+            build_load
+              (Types.llvm_type_of env compile_stmt_cb ret_ast_ty)
+              p "sret_load" !ce_builder
+        | None -> call_res
       end
 
   and gen_struct env compile_stmt_cb loc name type_args fields =
@@ -1187,11 +1306,37 @@ module Make (Types : TYPES) : EXPR = struct
     let catch_val_raw =
       if is_direct_fn then
         let name = match handler.node with Let n -> n | _ -> "" in
-        let ft, _, _ = Hashtbl.find env.function_types name in
+        let ft, param_ast_tys, ret_ast_ty =
+          Hashtbl.find env.function_types name
+        in
+        let is_sret =
+          Array.length (param_types ft) = List.length param_ast_tys + 1
+        in
         let call_name =
           if expected_ll_ty = void_type ce_ctx then "" else "catch_call_tmp"
         in
-        build_call ft handler_val [| err_str |] call_name !ce_builder
+        let sret_alloca =
+          if is_sret then
+            Some
+              (build_alloca
+                 (Types.llvm_type_of env compile_stmt_cb ret_ast_ty)
+                 "sret_tmp" !ce_builder)
+          else None
+        in
+        let all_args =
+          match sret_alloca with
+          | Some p -> [| p; err_str |]
+          | None -> [| err_str |]
+        in
+        let call_res =
+          build_call ft handler_val all_args call_name !ce_builder
+        in
+        match sret_alloca with
+        | Some p ->
+            build_load
+              (Types.llvm_type_of env compile_stmt_cb ret_ast_ty)
+              p "sret_load" !ce_builder
+        | None -> call_res
       else
         let is_anon_fn =
           match infer_ast_type env handler with TFn _ -> true | _ -> false
@@ -1209,20 +1354,39 @@ module Make (Types : TYPES) : EXPR = struct
           let ret_ty =
             match infer_ast_type env handler with TFn (_, r) -> r | _ -> TVoid
           in
+          let ret_llty = Types.llvm_type_of env compile_stmt_cb ret_ty in
+          let is_sret = is_sret_ty ret_llty in
+          let base_expected_tys =
+            pointer_type ce_ctx
+            :: List.map (Types.llvm_type_of env compile_stmt_cb) param_tys
+          in
           let expected_tys =
-            Array.of_list
-              (pointer_type ce_ctx
-              :: List.map (Types.llvm_type_of env compile_stmt_cb) param_tys)
+            if is_sret then
+              Array.of_list (pointer_type ce_ctx :: base_expected_tys)
+            else Array.of_list base_expected_tys
           in
           let ft =
-            function_type
-              (Types.llvm_type_of env compile_stmt_cb ret_ty)
-              expected_tys
+            if is_sret then function_type (void_type ce_ctx) expected_tys
+            else function_type ret_llty expected_tys
           in
           let call_name =
             if expected_ll_ty = void_type ce_ctx then "" else "catch_call_tmp"
           in
-          build_call ft fn_ptr_raw [| env_ptr; err_str |] call_name !ce_builder
+          let sret_alloca =
+            if is_sret then Some (build_alloca ret_llty "sret_tmp" !ce_builder)
+            else None
+          in
+          let all_args =
+            match sret_alloca with
+            | Some p -> [| p; env_ptr; err_str |]
+            | None -> [| env_ptr; err_str |]
+          in
+          let call_res =
+            build_call ft fn_ptr_raw all_args call_name !ce_builder
+          in
+          match sret_alloca with
+          | Some p -> build_load ret_llty p "sret_load" !ce_builder
+          | None -> call_res
         else raise (Error.catch_handler_must_fn loc)
     in
     let catch_val =
@@ -1313,15 +1477,21 @@ module Make (Types : TYPES) : EXPR = struct
         ignore (build_store loaded_val gep !ce_builder))
       live_vars;
 
+    let ret_llty = Types.llvm_type_of env compile_stmt_cb ret_ty in
+    let is_sret = is_sret_ty ret_llty in
+    let base_param_types =
+      pointer_type ce_ctx
+      :: List.map
+           (fun (p : param) -> Types.llvm_type_of env compile_stmt_cb p.ty)
+           params
+    in
     let param_types =
-      Array.of_list
-        (pointer_type ce_ctx
-        :: List.map
-             (fun (p : param) -> Types.llvm_type_of env compile_stmt_cb p.ty)
-             params)
+      if is_sret then Array.of_list (pointer_type ce_ctx :: base_param_types)
+      else Array.of_list base_param_types
     in
     let ft =
-      function_type (Types.llvm_type_of env compile_stmt_cb ret_ty) param_types
+      if is_sret then function_type (void_type ce_ctx) param_types
+      else function_type ret_llty param_types
     in
     Hashtbl.replace env.function_types actual_name
       (ft, List.map (fun (p : param) -> p.ty) params, ret_ty);
@@ -1330,11 +1500,17 @@ module Make (Types : TYPES) : EXPR = struct
     set_linkage Linkage.Internal f;
     let bb = append_block ce_ctx "entry" f in
     position_at_end bb !ce_builder;
-
     let old_named_values = Hashtbl.copy env.named_values in
     Hashtbl.clear env.named_values;
+
+    let actual_params = Llvm.params f in
+    let offset = if is_sret then 1 else 0 in
+    if is_sret then env.sret_ptr := Some actual_params.(0)
+    else env.sret_ptr := None;
+
     let inner_env_ptr =
-      build_bitcast (param f 0) (pointer_type ce_ctx) "inner_env" !ce_builder
+      build_bitcast actual_params.(offset) (pointer_type ce_ctx) "inner_env"
+        !ce_builder
     in
 
     List.iteri
@@ -1348,11 +1524,10 @@ module Make (Types : TYPES) : EXPR = struct
         ignore (build_store loaded_val local_alloca !ce_builder);
         Hashtbl.add env.named_values k (local_alloca, ty, is_mut))
       live_vars;
-
     Array.iteri
       (fun i a ->
-        if i > 0 then begin
-          let real_i = i - 1 in
+        if i > offset then begin
+          let real_i = i - 1 - offset in
           let n = (List.nth params real_i).param_name in
           let p_ty = (List.nth params real_i).ty in
           let alloca =
@@ -1363,7 +1538,7 @@ module Make (Types : TYPES) : EXPR = struct
           ignore (build_store a alloca !ce_builder);
           Hashtbl.add env.named_values n (alloca, p_ty, false)
         end)
-      (Llvm.params f);
+      actual_params;
 
     List.iter
       (fun s ->

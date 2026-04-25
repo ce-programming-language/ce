@@ -7,6 +7,11 @@ open Infer
 open Codegen
 
 module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
+  let is_sret_ty ty =
+    match classify_type ty with
+    | TypeKind.Struct | TypeKind.Array -> true
+    | _ -> false
+
   let rec gen_block env stmts =
     List.iter
       (fun s ->
@@ -112,6 +117,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
              match ret_ty with TResult _ -> true | _ -> false);
           env.current_fn_ret_ty := Types.llvm_type_of env codegen ret_ty;
 
+          let ret_llty = !(env.current_fn_ret_ty) in
           let param_types =
             Array.of_list
               (List.map
@@ -119,34 +125,44 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                  params)
           in
           let ft =
-            function_type (Types.llvm_type_of env codegen ret_ty) param_types
+            if is_sret_ty ret_llty then
+              function_type (void_type ce_ctx)
+                (Array.append [| pointer_type ce_ctx |] param_types)
+            else function_type ret_llty param_types
           in
           Hashtbl.add env.function_types actual_name
             (ft, List.map (fun (p : param) -> p.ty) params, ret_ty);
-
           let f = declare_function actual_name ft !ce_module in
           if not s.is_pub then set_linkage Linkage.Internal f;
-
           let bb = append_block ce_ctx "entry" f in
           let old_pos =
             try Some (insertion_block !ce_builder) with _ -> None
           in
           position_at_end bb !ce_builder;
-
           let old_named_values = Hashtbl.copy env.named_values in
+
+          let is_sret = is_sret_ty ret_llty in
+          let actual_params = Llvm.params f in
+          let offset = if is_sret then 1 else 0 in
+          if is_sret then env.sret_ptr := Some actual_params.(0)
+          else env.sret_ptr := None;
+
           Array.iteri
             (fun i a ->
-              let n = (List.nth params i).param_name in
-              let p_ty =
-                match (List.nth params i).ty with
-                | TVariadic t -> TGenericInst ("slices.Slice", [ t ])
-                | t -> t
-              in
-              let llvm_p_ty = Types.llvm_type_of env codegen p_ty in
-              let alloca = build_alloca llvm_p_ty n !ce_builder in
-              ignore (build_store a alloca !ce_builder);
-              Hashtbl.add env.named_values n (alloca, p_ty, false))
-            (Llvm.params f);
+              if i >= offset then begin
+                let param_idx = i - offset in
+                let n = (List.nth params param_idx).param_name in
+                let p_ty =
+                  match (List.nth params param_idx).ty with
+                  | TVariadic t -> TGenericInst ("slices.Slice", [ t ])
+                  | t -> t
+                in
+                let llvm_p_ty = Types.llvm_type_of env codegen p_ty in
+                let alloca = build_alloca llvm_p_ty n !ce_builder in
+                ignore (build_store a alloca !ce_builder);
+                Hashtbl.add env.named_values n (alloca, p_ty, false)
+              end)
+            actual_params;
 
           gen_block env body;
 
@@ -194,7 +210,19 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
             | None -> ());
 
             let call_name = if ret_ty = TVoid then "" else "main_call" in
-            let call_res = build_call ft f [||] call_name c_builder in
+            let sret_alloc =
+              if is_sret then Some (build_alloca ret_llty "main_sret" c_builder)
+              else None
+            in
+            let all_args =
+              match sret_alloc with Some p -> [| p |] | None -> [||]
+            in
+            let call_res_raw = build_call ft f all_args call_name c_builder in
+            let call_res =
+              match sret_alloc with
+              | Some p -> build_load ret_llty p "sret_load" c_builder
+              | None -> call_res_raw
+            in
 
             if match ret_ty with TResult _ -> true | _ -> false then begin
               let is_err = build_extractvalue call_res 0 "is_err" c_builder in
@@ -722,6 +750,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                 | None -> m_params
               in
 
+              let ret_llty = Types.llvm_type_of env codegen ret_ty in
               let param_types =
                 Array.of_list
                   (List.map
@@ -729,9 +758,10 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                      all_params)
               in
               let ft =
-                function_type
-                  (Types.llvm_type_of env codegen ret_ty)
-                  param_types
+                if is_sret_ty ret_llty then
+                  function_type (void_type ce_ctx)
+                    (Array.append [| pointer_type ce_ctx |] param_types)
+                else function_type ret_llty param_types
               in
               Hashtbl.replace env.function_types mangled_name
                 (ft, List.map (fun (p : param) -> p.ty) all_params, ret_ty);
@@ -760,7 +790,11 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         let err_msg = Expr.codegen env codegen e in
         let ret_ty = !(env.current_fn_ret_ty) in
         let res_struct = gen_err_result ce_ctx !ce_builder ret_ty err_msg in
-        ignore (build_ret res_struct !ce_builder);
+        (match !(env.sret_ptr) with
+        | Some ptr ->
+            ignore (build_store res_struct ptr !ce_builder);
+            ignore (build_ret_void !ce_builder)
+        | None -> ignore (build_ret res_struct !ce_builder));
         const_null (void_type ce_ctx)
     | DefInterface (name, sigs) ->
         Hashtbl.add env.interface_registry name sigs;

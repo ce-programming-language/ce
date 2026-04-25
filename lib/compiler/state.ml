@@ -35,6 +35,7 @@ type compiler_env = {
   loop_exit_blocks : llbasicblock Stack.t;
   current_fn_is_res : bool ref;
   current_fn_ret_ty : lltype ref;
+  sret_ptr : llvalue option ref;
   current_module : string ref;
 }
 
@@ -53,5 +54,6 @@ let create_env context =
     loop_exit_blocks = Stack.create ();
     current_fn_is_res = ref false;
     current_fn_ret_ty = ref @@ void_type context;
+    sret_ptr = ref None;
     current_module = ref "main";
   }

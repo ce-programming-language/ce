@@ -6,6 +6,11 @@ open State
 open Codegen
 
 module Make () : TYPES = struct
+  let is_sret_ty ty =
+    match classify_type ty with
+    | TypeKind.Struct | TypeKind.Array -> true
+    | _ -> false
+
   let rec llvm_type_of env stmt_codegen = function
     | TInt (bits, _) -> integer_type ce_ctx bits
     | TFloat 32 -> float_type ce_ctx
@@ -222,6 +227,7 @@ module Make () : TYPES = struct
           in
           let sub_ret_ty = substitute_type type_map ret_ty in
           let sub_body = List.map (substitute_stmt type_map) body in
+          let ret_llty = llvm_type_of env stmt_codegen sub_ret_ty in
           let param_types =
             Array.of_list
               (List.map
@@ -229,7 +235,10 @@ module Make () : TYPES = struct
                  sub_params)
           in
           let ft =
-            function_type (llvm_type_of env stmt_codegen sub_ret_ty) param_types
+            if is_sret_ty ret_llty then
+              function_type (void_type ce_ctx)
+                (Array.append [| pointer_type ce_ctx |] param_types)
+            else function_type ret_llty param_types
           in
           Hashtbl.replace env.function_types mangled_name
             (ft, List.map (fun (p : param) -> p.ty) sub_params, sub_ret_ty);

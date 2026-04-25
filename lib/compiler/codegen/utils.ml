@@ -314,13 +314,24 @@ module Stmt = struct
         if type_of v = void_type ce_ctx then s1
         else build_insertvalue s1 v 1 "ok_val" ce_builder
       in
-      ignore (build_ret s2 ce_builder);
-      const_null (void_type ce_ctx)
+      match !(env.sret_ptr) with
+      | Some ptr ->
+          ignore (build_store s2 ptr ce_builder);
+          ignore (build_ret_void ce_builder);
+          const_null (void_type ce_ctx)
+      | None ->
+          ignore (build_ret s2 ce_builder);
+          const_null (void_type ce_ctx)
     end
     else begin
       if type_of v = void_type ce_ctx then ignore (build_ret_void ce_builder)
-      else ignore (build_ret v ce_builder);
-
+      else
+        begin match !(env.sret_ptr) with
+        | Some ptr ->
+            ignore (build_store v ptr ce_builder);
+            ignore (build_ret_void ce_builder)
+        | None -> ignore (build_ret v ce_builder)
+        end;
       const_null (void_type ce_ctx)
     end
 
