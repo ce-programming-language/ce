@@ -455,13 +455,12 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
         let element_ptr, expected_ll_ty, expected_ast_ty =
           match array_ty with
           | TArray (_, t) ->
-              let zero = const_int (i32_type ce_ctx) 0 in
-              let llvm_array_ty = Types.llvm_type_of env codegen array_ty in
+              let elem_ll_ty = Types.llvm_type_of env codegen t in
               let ptr =
-                build_in_bounds_gep llvm_array_ty array_ptr_val
-                  [| zero; idx_val |] "arrayidx" !ce_builder
+                build_in_bounds_gep elem_ll_ty array_ptr_val [| idx_val |]
+                  "arrayidx" !ce_builder
               in
-              (ptr, element_type llvm_array_ty, t)
+              (ptr, elem_ll_ty, t)
           | TGenericInst ("slices.Slice", [ t ]) ->
               let slice_val =
                 build_load
@@ -632,15 +631,17 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                     "arr_tmp" !ce_builder
                 in
                 ignore (build_store iter_val arr_tmp !ce_builder);
-                let zero = const_int (i32_type ce_ctx) 0 in
-                let gep =
-                  build_in_bounds_gep
-                    (Types.llvm_type_of env codegen iter_ast_ty)
-                    arr_tmp [| zero; current_idx |] "arr_gep" !ce_builder
+                let elem_ast_ty =
+                  match iter_ast_ty with TArray (_, t) -> t | _ -> TUnknown
                 in
-                build_load
-                  (element_type (Types.llvm_type_of env codegen iter_ast_ty))
-                  gep "arr_elem" !ce_builder
+                let actual_elem_ty =
+                  Types.llvm_type_of env codegen elem_ast_ty
+                in
+                let gep =
+                  build_in_bounds_gep actual_elem_ty arr_tmp [| current_idx |]
+                    "arr_gep" !ce_builder
+                in
+            build_load actual_elem_ty gep "arr_elem" !ce_builder
               end
               else begin
                 let slice_ptr =

@@ -18,7 +18,8 @@ module Make () : TYPES = struct
     | TVoid -> void_type ce_ctx
     | TString -> pointer_type ce_ctx
     | TPointer _ -> pointer_type ce_ctx
-    | TArray (n, ty) -> array_type (llvm_type_of env stmt_codegen ty) n
+    | TArray (n, ty) ->
+        struct_type ce_ctx (Array.make n (llvm_type_of env stmt_codegen ty))
     | TNamed name -> (
         match Hashtbl.find_opt env.type_aliases name with
         | Some actual_ty -> llvm_type_of env stmt_codegen actual_ty

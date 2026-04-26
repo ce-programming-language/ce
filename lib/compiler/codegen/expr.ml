@@ -1083,15 +1083,11 @@ module Make (Types : TYPES) : EXPR = struct
     build_load struct_ty alloc "tupleload" !ce_builder
 
   and gen_array env compile_stmt_cb n ty elems =
-    let arr_ty = array_type (Types.llvm_type_of env compile_stmt_cb ty) n in
+    let arr_ty = Types.llvm_type_of env compile_stmt_cb (TArray (n, ty)) in
     let alloc = build_alloca arr_ty "arrtmp" !ce_builder in
     List.iteri
       (fun i e ->
-        let ptr =
-          build_gep arr_ty alloc
-            [| const_int (i32_type ce_ctx) 0; const_int (i32_type ce_ctx) i |]
-            "elemtmp" !ce_builder
-        in
+        let ptr = build_struct_gep arr_ty alloc i "elemtmp" !ce_builder in
         ignore (build_store (codegen env compile_stmt_cb e) ptr !ce_builder))
       elems;
     build_load arr_ty alloc "arrload" !ce_builder
@@ -1104,16 +1100,13 @@ module Make (Types : TYPES) : EXPR = struct
     in
     let idx_val = codegen env compile_stmt_cb index_expr in
     match array_ty with
-    | TArray _ ->
-        let llvm_array_ty = Types.llvm_type_of env compile_stmt_cb array_ty in
+    | TArray (_, t) ->
+        let elem_ll_ty = Types.llvm_type_of env compile_stmt_cb t in
         let element_ptr =
-          build_in_bounds_gep llvm_array_ty array_ptr_val
-            [| const_int (i32_type ce_ctx) 0; idx_val |]
-            "arrayidx" !ce_builder
+          build_in_bounds_gep elem_ll_ty array_ptr_val [| idx_val |] "arrayidx"
+            !ce_builder
         in
-        build_load
-          (element_type llvm_array_ty)
-          element_ptr "loadtmp" !ce_builder
+        build_load elem_ll_ty element_ptr "loadtmp" !ce_builder
     | TGenericInst ("slices.Slice", [ elem_ast_ty ]) ->
         let slice_val =
           build_load
