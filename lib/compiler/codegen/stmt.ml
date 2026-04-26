@@ -641,7 +641,7 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
                   build_in_bounds_gep actual_elem_ty arr_tmp [| current_idx |]
                     "arr_gep" !ce_builder
                 in
-            build_load actual_elem_ty gep "arr_elem" !ce_builder
+                build_load actual_elem_ty gep "arr_elem" !ce_builder
               end
               else begin
                 let slice_ptr =
