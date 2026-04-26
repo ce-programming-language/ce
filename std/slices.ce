@@ -100,7 +100,7 @@ impl Slice<T any> {
 
     let target *T = self._ptr + (self._len * so)
     *target = item
-    
+
     self._len = self._len + 1
   }
 

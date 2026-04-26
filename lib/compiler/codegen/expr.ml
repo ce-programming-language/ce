@@ -17,8 +17,9 @@ module Make (Types : TYPES) : EXPR = struct
     | TypeKind.Struct ->
         let elems = struct_element_types ty in
         Array.length elems = 3
-        && elems.(0) = i1_type ce_ctx
-        && elems.(2) = pointer_type ce_ctx
+        && classify_type elems.(0) = TypeKind.Integer
+        && integer_bitwidth elems.(0) = 1
+        && classify_type elems.(2) = TypeKind.Pointer
     | _ -> false
 
   let is_interface_type ty =
@@ -26,8 +27,8 @@ module Make (Types : TYPES) : EXPR = struct
     | TypeKind.Struct ->
         let elems = struct_element_types ty in
         Array.length elems = 2
-        && elems.(0) = pointer_type ce_ctx
-        && elems.(1) = pointer_type ce_ctx
+        && classify_type elems.(0) = TypeKind.Pointer
+        && classify_type elems.(1) = TypeKind.Pointer
     | _ -> false
 
   let check_unsigned_bounds env loc is_unsigned_target is_unsigned_source raw_ty

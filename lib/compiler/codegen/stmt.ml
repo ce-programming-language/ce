@@ -30,8 +30,9 @@ module Make (Types : TYPES) (Expr : EXPR) : STMT = struct
           | TypeKind.Struct ->
               let elems = struct_element_types ty in
               Array.length elems = 3
-              && elems.(0) = i1_type ce_ctx
-              && elems.(2) = pointer_type ce_ctx
+              && classify_type elems.(0) = TypeKind.Integer
+              && integer_bitwidth elems.(0) = 1
+              && classify_type elems.(2) = TypeKind.Pointer
           | _ -> false
         in
         if is_result then begin
