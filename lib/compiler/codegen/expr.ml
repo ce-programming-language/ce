@@ -760,14 +760,26 @@ module Make (Types : TYPES) : EXPR = struct
         | Some c -> c
         | None -> raise (Error.unknown_method loc method_name actual_base_path)
       in
-      let ft, param_ast_tys, _ =
+      let ft, param_ast_tys, ret_ast_ty =
         try Hashtbl.find env.function_types target_name
         with Not_found ->
           raise (Error.unknown_method loc method_name actual_base_path)
       in
+      let is_sret =
+        Array.length (param_types ft) = List.length param_ast_tys + 1
+      in
+      let sret_alloca =
+        if is_sret then
+          Some
+            (build_alloca
+               (Types.llvm_type_of env compile_stmt_cb ret_ast_ty)
+               "sret_tmp" !ce_builder)
+        else None
+      in
+      let offset_ll = if is_sret then 1 else 0 in
       let arg_vals =
         process_args env compile_stmt_cb loc (param_types ft) param_ast_tys args
-          0 0
+          offset_ll 0
           (List.length param_ast_tys - 1)
       in
       let call_name =
@@ -779,7 +791,20 @@ module Make (Types : TYPES) : EXPR = struct
       let actual_callee =
         Utils.resolve_cross_module callee builder_module ft (value_name callee)
       in
-      build_call ft actual_callee (Array.of_list arg_vals) call_name !ce_builder)
+      let all_args =
+        match sret_alloca with
+        | Some p -> Array.of_list (p :: arg_vals)
+        | None -> Array.of_list arg_vals
+      in
+      let call_res =
+        build_call ft actual_callee all_args call_name !ce_builder
+      in
+      match sret_alloca with
+      | Some p ->
+          build_load
+            (Types.llvm_type_of env compile_stmt_cb ret_ast_ty)
+            p "sret_load" !ce_builder
+      | None -> call_res)
     else
       let self_val =
         try codegen env compile_stmt_cb (Utils.mk_expr @@ Let base_path)
