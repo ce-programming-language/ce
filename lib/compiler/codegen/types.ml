@@ -137,6 +137,7 @@ module Make () : TYPES = struct
                             { param_name = self_id; ty = self_ty } :: sub_params
                         | None -> sub_params
                       in
+                      let ret_llty = llvm_type_of env stmt_codegen sub_ret_ty in
 
                       let param_types =
                         Array.of_list
@@ -146,9 +147,10 @@ module Make () : TYPES = struct
                              all_sub_params)
                       in
                       let ft =
-                        function_type
-                          (llvm_type_of env stmt_codegen sub_ret_ty)
-                          param_types
+                        if is_sret_ty ret_llty then
+                          function_type (void_type ce_ctx)
+                            (Array.append [| pointer_type ce_ctx |] param_types)
+                        else function_type ret_llty param_types
                       in
                       Hashtbl.replace env.function_types mangled_method
                         ( ft,
